@@ -236,6 +236,9 @@ G.Agent = (() => {
           drawOverlay();
           return ok({ cid: choice.cid });
         }
+        case 'mark':                      // advice from the agent (e.g. Jev) the player may follow
+          markAI(1);
+          return ok();
         case 'release':
           G.Autopilot.release();
           return ok();

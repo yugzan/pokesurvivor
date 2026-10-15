@@ -17,7 +17,9 @@ export const INSTRUCTIONS =
   'You play alongside a human who has the game open. Workflow: 1) ask the player for the 6-character code and call pair(code); ' +
   '2) call set_autopilot (e.g. "kite") so the character keeps moving; 3) loop: wait_for_choice -> pick the best card with choose(index) ' +
   '(use reroll if no card helps and rerolls remain); between choices, check get_state and adjust the autopilot mode. ' +
-  'move(dx, dy, ms) is only a short manual override. release() hands control back to the player. Card texts are in Spanish.';
+  'move(dx, dy, ms) is only a short manual override. release() hands control back to the player. Card texts are in Spanish. ' +
+  'If the user has a TypeSafe Jev key (X-Jev-Key header or jev_key argument), evaluate_choices / should_reroll / suggest_strategy give ' +
+  'Jev\'s probabilities for the cards and the movement mode, and auto_play lets Jev play by itself (auto_play_status shows its progress).';
 
 const jsonRpcError = (res, status, code, message) =>
   sendJson(res, status, { jsonrpc: '2.0', error: { code, message }, id: null });
@@ -74,6 +76,7 @@ export class McpHub {
     const hub = this;
     const games = this.games;
     const session = entry.session;
+    const listeners = new Map();                 // event -> Set(fn)
     const ctx = {
       config: this.config,
       games,
@@ -113,7 +116,20 @@ export class McpHub {
       },
       // Send a protocol cmd (section 2) to the paired page and wait for its result.
       sendCmd: async (op, args) => games.sendCmd(ctx.requireGame(), op, args),
+      // Session-local events between tool modules: 'closed' (MCP session ended),
+      // 'release' (release() was called). Used by long-running tools such as auto_play.
+      on: (event, fn) => {
+        if (!listeners.has(event)) listeners.set(event, new Set());
+        listeners.get(event).add(fn);
+        return () => listeners.get(event)?.delete(fn);
+      },
+      emit: (event, ...args) => {
+        for (const fn of [...(listeners.get(event) || [])]) {
+          try { fn(...args); } catch (e) { log('listener_error', { event, message: String(e?.message || e).slice(0, 100) }); }
+        }
+      },
     };
+    entry.ctx = ctx;
     return ctx;
   }
 
@@ -145,6 +161,7 @@ export class McpHub {
     this.sessions.delete(id);
     const g = entry.session.sid && this.games.get(entry.session.sid);
     if (g) this.games.unpair(g, id, reason);
+    entry.ctx?.emit('closed', reason);
     log('mcp_session_closed', { mcp: short(id), reason, sessions: this.sessions.size });
     entry.server.close().catch(() => {});
   }

@@ -35,6 +35,29 @@ Suggested loop: `pair` → `set_autopilot("kite")` → repeat `wait_for_choice` 
 checking `get_state` between choices to adjust the autopilot. MCP calls are too slow
 for frame-by-frame control, so leave movement to the autopilot. Card texts are in Spanish.
 
+## Jev tools
+
+With your own [TypeSafe](https://typesafe.ai) key, the relay can also ask **Jev**
+(TypeSafe's System One model) for probabilities. Get a key at
+https://console.typesafe.ai/keys.
+
+| Tool | What it does |
+|---|---|
+| `evaluate_choices()` | Jev's probability for each card on the open screen, its pick and confidence (plus the chance a reroll is better); also drawn over the cards on the player's screen |
+| `should_reroll()` | Probability that the current level-up cards are all poor and a reroll is better |
+| `suggest_strategy(apply?)` | Autopilot mode Jev recommends now (`kite`, `retreat`, `collect_xp`, `hunt_boss`); `apply: true` switches to it |
+| `auto_play(enabled, min_confidence?, strategy_every_s?)` | Server-side loop that plays with Jev alone: picks cards when confidence ≥ `min_confidence` (default 0.35; otherwise it only shows the probabilities), rerolls poor sets, updates the autopilot every `strategy_every_s` s (default 4). Stops with `auto_play(false)`, `release()` or when the session ends |
+| `auto_play_status()` | Whether `auto_play` runs, choices made, last error |
+
+Send the key as the `X-Jev-Key` header in your MCP client config, e.g. Claude Code:
+`claude mcp add --transport http pokesurvivor https://<site>/mcp --header "X-Jev-Key: <key>"`.
+Clients that cannot set headers can pass `jev_key` to each Jev tool (the header wins).
+
+Privacy: the key is only forwarded to TypeSafe with each Jev call; it is never stored
+or logged (`auto_play` keeps it in memory while its loop runs). Leaderboard: using only
+`evaluate_choices` / `should_reroll` / `suggest_strategy` while you play yourself marks the run 🧠;
+`auto_play` or the agent picking/moving marks it 🤖.
+
 ## Leaderboard
 
 Runs with AI count, but each player gets a separate AI record (it never replaces

@@ -4,8 +4,9 @@
 import * as pairing from './pairing.js';
 import * as read from './read.js';
 import * as control from './control.js';
+import * as jev from './jev.js';
 
-export const toolModules = [pairing, read, control];
+export const toolModules = [pairing, read, control, jev];
 
 export function registerTools(server, ctx, modules = toolModules) {
   for (const m of modules) m.register(server, ctx);

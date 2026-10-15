@@ -67,7 +67,7 @@ describe('relay', () => {
 
     const agent = await newAgent(base);
     const tools = (await agent.client.listTools()).tools.map((t) => t.name).sort();
-    assert.deepEqual(tools, ['choose', 'get_choice', 'get_state', 'move', 'pair', 'release', 'reroll', 'set_autopilot', 'wait_for_choice']);
+    assert.deepEqual(tools, ['auto_play', 'auto_play_status', 'choose', 'evaluate_choices', 'get_choice', 'get_state', 'move', 'pair', 'release', 'reroll', 'set_autopilot', 'should_reroll', 'suggest_strategy', 'wait_for_choice']);
 
     // not paired yet
     let r = await agent.call('get_state');

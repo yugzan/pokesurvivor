@@ -93,6 +93,7 @@ export function register(server, ctx) {
     annotations: act,
   }, guard(async () => {
     ctx.requireGame();
+    ctx.emit?.('release');                       // stops auto_play (agent-jev)
     return run('release', {});
   }));
 }

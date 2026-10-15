@@ -11,6 +11,8 @@ G.CHANGELOG = [
      'AI connection: in Settings > AI you can let an AI agent (Claude, Codex…) play with you through MCP. You get a 6-character code to pair it; the agent can pick cards and move with an autopilot, and you can still choose yourself whenever you want.'],
     ['Ranking: las partidas con IA cuentan, pero aparte de las tuyas y marcadas (🧠 con ayuda de IA, 🤖 ha jugado la IA). Con "Ocultar IA" ves sólo las partidas jugadas por personas.',
      'Leaderboard: runs with AI count, but separately from your own and marked (🧠 AI-assisted, 🤖 played by AI). With "Hide AI" you only see runs played by people.'],
+    ['La conexión con IA puede usar Jev (TypeSafe) con tu propia clave: el agente ve la probabilidad de cada carta, y las cartas muestran en pantalla el porcentaje que les da Jev. Jev también puede jugar solo.',
+     'The AI connection can use Jev (TypeSafe) with your own key: the agent sees the probability of each card, and the cards show on screen the percentage Jev gives them. Jev can also play on its own.'],
     ['El juego ahora incluye chino tradicional: menús, movimientos, objetos, misiones, avisos y nombres de los 966 Pokémon. Se puede cambiar el idioma en Ajustes > Gráficos.',
      'The game now includes Traditional Chinese: menus, moves, items, missions, messages and names for all 966 Pokémon. Change the language in Settings > Graphics.']
   ] },

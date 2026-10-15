@@ -29,6 +29,12 @@ export function loadConfig(overrides = {}) {
     pairFailLimit: num('PAIR_FAIL_LIMIT', 5),           // wrong codes before block
     pairBlockMs: num('PAIR_BLOCK_MS', 60 * 1000),
     pairGlobalFailPerMin: num('PAIR_GLOBAL_FAIL_PER_MIN', 60), // wrong codes from all IPs
+    // Jev (TypeSafe System One), agent-jev only. The key comes from each MCP client.
+    jevApiBase: (process.env.JEV_API_BASE || 'https://api.typesafe.ai').replace(/\/+$/, ''),
+    jevModel: process.env.JEV_MODEL || 'jev-1.13.0',
+    jevTimeoutMs: num('JEV_TIMEOUT_MS', 8000),
+    jevPerSec: num('JEV_PER_SEC', 2),                   // Jev calls per MCP session
+    jevRetryMaxMs: num('JEV_RETRY_MAX_MS', 5000),       // cap on retry-after for 429/529
     ...overrides,
   };
 }
