@@ -7,4 +7,5 @@ COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY . /usr/share/nginx/html
 RUN rm -rf /usr/share/nginx/html/docker
 # Al arrancar: config.js con los datos del .env (Firebase, dominios, TURN)
-COPY --chmod=755 docker/config.sh /docker-entrypoint.d/40-pokesurvivor-config.sh
+COPY docker/config.sh /docker-entrypoint.d/40-pokesurvivor-config.sh
+RUN chmod 755 /docker-entrypoint.d/40-pokesurvivor-config.sh   # (sin COPY --chmod: Docker 19.03 no lo entiende)
