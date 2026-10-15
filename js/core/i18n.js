@@ -1,9 +1,9 @@
-/* ============ i18n.js — idiomas (español / inglés) ============
- * El juego está escrito en español. Si el idioma es inglés, todo texto que
- * se enseña se traduce con el diccionario de js/data/lang-en.js, sin tener que
- * tocar cada pantalla:
+/* ============ i18n.js — idiomas (español / inglés / chino tradicional) ============
+ * El juego está escrito en español. En otro idioma, todo texto que se enseña se
+ * traduce con su diccionario (js/data/lang-en.js, js/data/lang-zh-Hant.js y
+ * js/data/pokemon-zh-Hant.js), sin tener que tocar cada pantalla:
  *   - el DOM (menús, cartas, avisos...) con un MutationObserver,
- *   - el canvas (HUD, avisos, números) envolviendo fillText/strokeText,
+ *   - el canvas (HUD, avisos, números) envolviendo fillText/strokeText/measureText,
  *   - confirm()/alert().
  *
  * El diccionario usa el texto español como clave. Tres niveles:
@@ -14,15 +14,18 @@
  * Lo que escriben los jugadores (apodos) va marcado con translate="no".
  *
  * Idioma: el elegido en Ajustes; si no, /en/ en la dirección o el del navegador
- * (español si el navegador está en español, inglés en cualquier otro caso).
+ * (español si está en español, chino tradicional si está en chino, inglés en otro caso).
  */
 G.I18n = (() => {
   const KEY = 'ps.lang';
   let saved = null;
   try { saved = localStorage.getItem(KEY); } catch (e) { /* nada */ }
+  const supported = ['es', 'en', 'zh-Hant'];
   const byPath = /\/en(\/|$)/.test(location.pathname) ? 'en' : null;
   const nav = ((navigator.languages && navigator.languages[0]) || navigator.language || 'es').toLowerCase();
-  const lang = saved === 'es' || saved === 'en' ? saved : byPath || (nav.startsWith('es') ? 'es' : 'en');
+  const byNav = nav.startsWith('es') ? 'es' : nav.startsWith('zh') ? 'zh-Hant' : 'en';
+  const lang = supported.includes(saved) ? saved : byPath || byNav;
+  const locale = { es: 'es-ES', en: 'en-GB', 'zh-Hant': 'zh-TW' }[lang];
   document.documentElement.lang = lang;
 
   const exact = new Map(), exactLow = new Map();
@@ -32,7 +35,8 @@ G.I18n = (() => {
   const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   /** Añade traducciones { 'texto en español': 'English text' }. */
-  function add(dict) {
+  function add(dict, language = 'en') {
+    if (language !== lang) return;
     const fr = [];
     for (const [es, en] of Object.entries(dict)) {
       if (!en || es === en) continue;
@@ -126,9 +130,10 @@ G.I18n = (() => {
   }
 
   function startDom() {
+    document.title = { es: 'PokéSurvivor – Juego Pokémon gratis online estilo Survivor.io', en: 'PokéSurvivor – Free online Pokémon survival game (Survivor.io style)', 'zh-Hant': 'PokéSurvivor — 免費寶可夢生存遊戲' }[lang];
     if (lang === 'es') return;
     // Los enlaces a las páginas de la web, a su versión en inglés.
-    const EN_LINKS = { 'guia/': 'en/guide/', 'pokedex/': 'en/pokedex/' };
+    const EN_LINKS = lang === 'en' ? { 'guia/': 'en/guide/', 'pokedex/': 'en/pokedex/' } : {};
     document.querySelectorAll('a[href]').forEach(a => { const h = a.getAttribute('href'); if (EN_LINKS[h]) a.setAttribute('href', EN_LINKS[h]); });
     walk(document.body);
     new MutationObserver(ms => {
@@ -154,10 +159,11 @@ G.I18n = (() => {
   }
 
   function set(l) {
+    if (!supported.includes(l)) return;
     try { localStorage.setItem(KEY, l); } catch (e) { /* nada */ }
     location.reload();
   }
 
-  return { lang, add, t, f, set, startDom, walk };
+  return { lang, locale, add, t, f, set, startDom, walk };
 })();
 G.T = G.I18n.t;
