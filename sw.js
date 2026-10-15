@@ -4,6 +4,7 @@
  * - Sprites, iconos y fuente: no cambian nunca, se sirven de la caché
  *   (se van guardando según se usan: no se descarga todo de golpe).
  * - Firebase y demás servicios de fuera no se tocan.
+ * - La conexión con IA (/agent/..., /mcp) tampoco: va siempre directa a la red.
  */
 const CODE = 'ps-code-v1', ART = 'ps-art-v1';
 
@@ -22,6 +23,7 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
+  if (/^\/(agent\/|mcp(\/|$))/.test(url.pathname)) return;
   const art = /\/assets\/(pokemon|icons|fonts)\//.test(url.pathname);
   if (art) {
     e.respondWith(caches.open(ART).then(async c => {

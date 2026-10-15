@@ -126,10 +126,15 @@ service cloud.firestore {
     //     muy bueno aguanta mucho más)
     //   - nivel y derrotados con margen de sobra (un grupo de 4 muy bueno)
     //   - la cuenta no puede estar baneada por el admin (saves/{uid}.ban)
+    // Partidas con IA (ai: 1 ayuda, 2 juega; sin el campo = 0): otra marca, con
+    // "_ai" al final del id, para que no pise la propia (lo declara el juego).
     function validEntry(board, id) {
       let d = request.resource.data;
       let run = get(/databases/$(database)/documents/runs/$(me())).data;
-      return d.keys().hasOnly(['t', 'uids', 'names', 'dex', 'shiny', 'lv', 'kills', 'at'])
+      let ai = d.get('ai', 0);
+      let sfx = ai == 0 ? '' : '_ai';
+      return d.keys().hasOnly(['t', 'uids', 'names', 'dex', 'shiny', 'lv', 'kills', 'at', 'ai'])
+        && ai is int && ai in [0, 1, 2]
         && d.t is int && d.t > 0 && d.t <= 3600
         && d.t <= (request.time - run.startedAt).seconds() + 30
         && d.lv is int && d.lv >= 1 && d.lv <= 10 + d.t / 4
@@ -141,8 +146,8 @@ service cloud.firestore {
         && d.shiny is list && d.shiny.size() == d.uids.size()
         && d.at == request.time
         && (board.matches('s_.*')
-              ? (d.uids.size() == 1 && id == me())
-              : (d.uids.size() >= 2 && d.uids.size() <= 4 && id == d.uids.join('_')))
+              ? (d.uids.size() == 1 && id == me() + sfx)
+              : (d.uids.size() >= 2 && d.uids.size() <= 4 && id == d.uids.join('_') + sfx))
         && (resource == null || d.t > resource.data.t);
     }
 
@@ -153,7 +158,7 @@ service cloud.firestore {
     }
 
     // Resumen con el top 50 de cada tabla (lo que se lee al mirar el ranking).
-    //   top: { id: { t, uids, names, dex, shiny, lv, kills } }
+    //   top: { id: { t, uids, names, dex, shiny, lv, kills, ai } }   (ai sólo si no es 0)
     //   me:  la fila que añades o mejoras (debe coincidir con tu marca validada,
     //        escrita en la misma transacción)
     //   ev:  la fila que sale del top (sólo si tiene menos tiempo que la tuya)
@@ -177,6 +182,7 @@ service cloud.firestore {
       return me() in e.uids
         && changed.hasOnly([d.me, d.ev])
         && row.t == e.t && row.uids == e.uids && row.names == e.names && row.dex == e.dex
+        && row.get('ai', 0) == e.get('ai', 0)
         && (d.ev == '' || (!(d.ev in d.top) && d.ev in old && old[d.ev].t <= e.t));
     }
     function removeMine(d, old, changed) {

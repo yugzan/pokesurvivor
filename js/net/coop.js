@@ -20,6 +20,8 @@
  *                            e:[[id,x,y,vida,anim,dir,estados]], ev:[eventos],
  *                            ja:[x,y,anim,dir] (Arceus, sólo en la Sentencia) }
  *   anfitrión -> todos     { k:'start', seed, host, members:[{uid,name,dex,shiny}] }
+ *   (el invitado añade ai:1|2 a su envío si la IA le ha ayudado o jugado, ver
+ *    G.Game.markAI; el anfitrión se queda con el más alto para el ranking)
  */
 G.Coop = (() => {
   const ANIMS = ['Idle', 'Walk', 'Attack', 'Shoot', 'Charge', 'Hurt', 'Faint'];
@@ -49,6 +51,7 @@ G.Coop = (() => {
   let levelSeq = 0, levelNow = 1, seenSeq = 0, doneSeq = 0, lastHo = '';
   const STALL_MS = 2500;
   let members = [];
+  let teamAi = 0;                       // anfitrión: la IA más alta de los invitados (no se borra en end())
 
   // ---------------- escalado de dificultad ----------------
 
@@ -70,7 +73,7 @@ G.Coop = (() => {
     api = cb;
     members = cfg.members;
     mates.clear();
-    outEv = []; flushT = 0; waiting = new Set(); holds = new Set();
+    outEv = []; flushT = 0; waiting = new Set(); holds = new Set(); teamAi = 0;
     hostAway = false; stalled = false; lastHostAt = performance.now();
     levelSeq = 0; levelNow = 1; seenSeq = 0; doneSeq = 0; lastHo = '';
     cfg.members.forEach((m, i) => {
@@ -194,8 +197,15 @@ G.Coop = (() => {
 
   function flushClient(force) {
     if (!force && !outEv.length && flushT > 0) return;
-    G.Net.toHost({ k: 'f', p: myState(), ev: outEv });
+    G.Net.toHost(clientFrame());
     outEv = [];
+  }
+  /** Invitado: lo que se manda al anfitrión (con "ai" sólo si la IA ha ayudado). */
+  function clientFrame() {
+    const f = { k: 'f', p: myState(), ev: outEv };
+    const ai = (G.Game && G.Game.aiLevel) | 0;
+    if (ai > 0) f.ai = ai;
+    return f;
   }
 
   /** Cada fotograma (también en la pantalla de subida de nivel). */
@@ -214,7 +224,7 @@ G.Coop = (() => {
       flushT -= dt;
       if (flushT <= 0) {
         flushT = rateFor(hostUid);
-        G.Net.toHost({ k: 'f', p: myState(), ev: outEv });
+        G.Net.toHost(clientFrame());
         outEv = [];
       }
     }
@@ -251,6 +261,7 @@ G.Coop = (() => {
   function onClientFrame(from, msg) {
     const m = mates.get(from);
     if (!m || !m.connected) return;
+    if (msg.ai) teamAi = Math.max(teamAi, Math.min(2, msg.ai | 0));
     if (msg.p) { m.state = msg.p; m.pl.net = readState(msg.p); m.xpMul = m.pl.net.xpMul || 1; reconcile(from, m.pl.net); }
     for (const ev of msg.ev || []) {
       switch (ev[0]) {
@@ -501,6 +512,8 @@ G.Coop = (() => {
     mate(u) { return mates.get(u); },
     get mates() { return [...mates.values()]; },
     get members() { return members; },
+    /** Anfitrión: la IA más alta de los invitados en la última partida (0, 1 o 2). */
+    get teamAi() { return teamAi; },
     get active() { return active; },
     get isHost() { return active && host; },
     get local() { return local; }

@@ -8,3 +8,12 @@ services:
       - path: .env
         required: false
     restart: unless-stopped
+
+  # Relay for AI agents (MCP). Only reachable through web's nginx (/mcp, /agent/): no published port.
+  # Without it web still runs; /mcp and /agent/ then answer 502.
+  mcp:
+    build: ./mcp
+    image: pokesurvivor-mcp
+    expose:
+      - "8080"
+    restart: unless-stopped

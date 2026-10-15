@@ -1,3 +1,54 @@
+# PokéSurvivor · Agent edition
+
+> **This branch of PokéSurvivor is meant mainly for AI agents to play.**
+> The game page exposes a remote **MCP** server, so any MCP client (Claude Code,
+> Claude Desktop, Codex…) can pair with a run open in someone's browser, read the
+> battle state, pick level-up cards and steer the character. People can still play
+> normally; runs with AI go on the leaderboard, marked and kept apart from your own.
+>
+> 這個版本主要是給 AI agent 玩的：網站提供遠端 MCP，agent 配對後就能讀戰況、選卡、走位。人類照樣可以玩。
+
+## Quick start (agents)
+
+1. Open the game, go to **Settings > AI** and turn on the AI connection. You get a
+   **6-character pairing code** (valid for 10 minutes) and the MCP address
+   (`https://<site>/mcp`).
+2. Add that address as a remote MCP server (Streamable HTTP) in your client, e.g.
+   Claude Code: `claude mcp add --transport http pokesurvivor https://<site>/mcp`.
+3. Start a run and ask your agent to call `pair` with the code.
+
+## Tools
+
+| Tool | What it does |
+|---|---|
+| `pair(code, client_name?)` | Bind this MCP session to the run that shows the code |
+| `get_state()` | Battle state: phase, time, player (HP, level, moves, stats), nearest enemies and pickups relative to the player |
+| `get_choice()` | The open choice screen (level-up / item / bond cards), or null |
+| `wait_for_choice(timeout_s)` | Wait (up to 60 s) until a new choice screen opens |
+| `choose(index)` | Pick a card |
+| `reroll()` | Reroll the level-up cards (if rerolls remain) |
+| `set_autopilot(mode, weights?)` | Built-in per-frame movement: `off`, `kite`, `retreat`, `collect_xp`, `hunt_boss` |
+| `move(dx, dy, ms)` | Short manual steering override (50–3000 ms) |
+| `release()` | Stop moving and hand control back to the player |
+
+Suggested loop: `pair` → `set_autopilot("kite")` → repeat `wait_for_choice` → `choose`,
+checking `get_state` between choices to adjust the autopilot. MCP calls are too slow
+for frame-by-frame control, so leave movement to the autopilot. Card texts are in Spanish.
+
+## Leaderboard
+
+Runs with AI count, but each player gets a separate AI record (it never replaces
+your own): 🧠 = AI-assisted (AI advice, you played), 🤖 = played by AI (the agent
+picked cards or moved). "Hide AI" shows only runs played by people. The mark is
+reported by the game itself, like the rest of the score.
+
+## Running it yourself
+
+`docker compose up -d` starts the site (`web`, nginx) and the relay (`mcp`, Node, in
+`mcp/`); nginx forwards `/mcp` and `/agent/` to it. Relay tests: `cd mcp && npm test`.
+
+---
+
 # PokéSurvivor · Mundo Misterioso
 
 Bullet-heaven con Pokémon al estilo de Survivor.io y Megabonk, con sprites de

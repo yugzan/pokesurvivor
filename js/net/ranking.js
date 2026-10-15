@@ -17,6 +17,10 @@
  *                    minuto 30, el histórico empezó de cero; las tablas viejas
  *                    s_all y s_all_pN se quedan en el servidor sin usarse)
  *   id = tu uid (solitario) o los uid del equipo ordenados y unidos con "_".
+ *        Las partidas con IA (ai = 1 ayuda, 2 juega; ver G.Game.markAI) van
+ *        en otra marca, con "_ai" al final del id: lo que haga la IA no pisa
+ *        tu marca propia. El campo "ai" va en la marca y en su fila del
+ *        resumen (sin él = 0, como las marcas de antes).
  *
  * Ahorros:
  *   - Lo leído se guarda 30 min en el navegador (cambiar de pestaña y volver: 0).
@@ -157,7 +161,10 @@ G.Ranking = (() => {
 
   // ---------------- guardar ----------------
 
-  const rowOf = (id, v) => ({ id, t: v.t, uids: v.uids || [], names: v.names || [], dex: v.dex || [], shiny: v.shiny || [], lv: v.lv, kills: v.kills });
+  const rowOf = (id, v) => ({ id, t: v.t, uids: v.uids || [], names: v.names || [], dex: v.dex || [], shiny: v.shiny || [], lv: v.lv, kills: v.kills, ai: v.ai | 0 });
+  /** 0, 1 o 2 (lo que llegue de la partida). */
+  const aiOf = r => Math.max(0, Math.min(2, (r && r.ai) | 0));
+  const AI_SFX = '_ai';
   const sorted = top => Object.entries(top || {}).map(([id, v]) => rowOf(id, v)).sort((a, b) => b.t - a.t);
   const now = () => firebase.firestore.FieldValue.serverTimestamp();
 
@@ -223,6 +230,7 @@ G.Ranking = (() => {
             // (Sin "shiny" si no hay ninguno: el resumen pesa menos.)
             const mine = { t: entry.t, uids: entry.uids, names: entry.names, dex: entry.dex, lv: entry.lv, kills: entry.kills };
             if (entry.shiny.some(Boolean)) mine.shiny = entry.shiny;
+            if (entry.ai) mine.ai = entry.ai;                         // (sin "ai" = 0)
             let ev = '';
             // Ya estabas con una marca mejor (otro ordenador): nada que escribir.
             if (id in top && top[id].t >= entry.t) { entered = false; newTop = top; return; }
@@ -243,8 +251,9 @@ G.Ranking = (() => {
           if (topOnly && !entered) { known[key] = entry.t; return; }
         }
         known[key] = entry.t;
-        if (b.startsWith('g_')) known[b + ':*'] = Math.max(known[b + ':*'] || 0, entry.t);
-        mem.delete('r:' + b); try { localStorage.removeItem('ps.rk.c.r:' + b); } catch (e) { /* nada */ }
+        const gk = b + ':*' + (entry.ai ? 'ai' : '');
+        if (b.startsWith('g_')) known[gk] = Math.max(known[gk] || 0, entry.t);
+        for (const rk of ['r:' + b, 'r:' + b + ':ai']) { mem.delete(rk); try { localStorage.removeItem('ps.rk.c.' + rk); } catch (e) { /* nada */ } }
         if (period && period !== 'p' && !better.includes(period)) better.push(period);
       } catch (e) { console.warn('[Ranking] no se pudo guardar en', b, e.code || e.message); }
     }));
@@ -264,10 +273,12 @@ G.Ranking = (() => {
     const fb = fbx();
     if (!fb || !G.Social.me || r.t < MIN_T) return [];
     const ids = boardIds();
+    const ai = aiOf(r);
     const entry = { t: r.t, uids: [fb.uid], names: [G.Social.me.name], dex: [r.dex], shiny: [!!r.shiny], lv: r.lv, kills: r.kills };
+    if (ai) entry.ai = ai;                                          // (sin "ai" = 0: igual que antes)
     const boards = PERIODS.map(([p]) => ['s_' + ids[p], p]);
     boards.push(['s_' + ALL + '_p' + r.dex, 'p']);
-    const better = await store(boards, fb.uid, entry);
+    const better = await store(boards, fb.uid + (ai ? AI_SFX : ''), entry);
     announce(better);
     return better;
   }
@@ -278,9 +289,11 @@ G.Ranking = (() => {
     const fb = fbx();
     if (!fb || r.t < MIN_T || !r.members || r.members.length < 2) return [];
     const ms = r.members.slice().sort((a, b) => (a.uid < b.uid ? -1 : 1));
-    const id = ms.map(m => m.uid).join('_');
+    const ai = aiOf(r);
+    const id = ms.map(m => m.uid).join('_') + (ai ? AI_SFX : '');
     const entry = { t: r.t, uids: ms.map(m => m.uid), names: ms.map(m => m.name), dex: ms.map(m => m.dex),
                     shiny: ms.map(m => !!m.shiny), lv: r.lv, kills: r.kills };
+    if (ai) entry.ai = ai;
     const ids = boardIds();
     const boards = PERIODS.map(([p]) => ['g_' + ids[p], p]);
     for (const d of new Set(entry.dex)) boards.push(['g_' + ALL + '_p' + d, 'p']);
@@ -340,29 +353,33 @@ G.Ranking = (() => {
     return [...all.values()].sort((a, c) => c.t - a.t).slice(0, TOP);
   }
 
-  /** Tu puesto en la tabla (aunque no salgas en el top). → { pos, t, row } | null */
-  async function myRank(mode, period, dex) {
+  /**
+   * Tu puesto en la tabla (aunque no salgas en el top). → { pos, t, row } | null
+   * Por defecto, tu marca propia (sin IA); con ai = true, tu marca con IA.
+   */
+  async function myRank(mode, period, dex, ai = false) {
     const fb = fbx();
     if (!fb) return null;
     const b = board(mode, period, dex);
+    const isMine = r => r.uids.includes(fb.uid) && (r.ai > 0) === !!ai;
     // ¿Estás en el top 50? Entonces el puesto sale del resumen, sin gastar nada.
     const rows = sorted(await summary(b));
-    const i = rows.findIndex(r => r.uids.includes(fb.uid));
+    const i = rows.findIndex(isMine);
     if (i >= 0) return { pos: i + 1, t: rows[i].t, row: rows[i] };
     if (TOP_ONLY.has(period) || dex) return { out: true };
-    const ck = 'r:' + b;
+    const ck = 'r:' + b + (ai ? ':ai' : '');
     const c = cacheGet(ck);
     if (c !== undefined) return c;
     // Si este navegador ya sabe que no tienes marca en esta tabla, no se mira.
-    const kb = bests(), mk = b + ':' + (mode === 's' ? fb.uid : '*');
+    const kb = bests(), mk = b + ':' + (mode === 's' ? fb.uid + (ai ? AI_SFX : '') : '*' + (ai ? 'ai' : ''));
     if (kb[mk] === 0) { cacheSet(ck, null); return null; }
     let mine = null;
     if (mode === 's') {
-      const d = await col(b).doc(fb.uid).get();
+      const d = await col(b).doc(fb.uid + (ai ? AI_SFX : '')).get();
       if (d.exists) mine = rowOf(d.id, d.data());
     } else {
       const s = await col(b).where('uids', 'array-contains', fb.uid).get();
-      for (const d of s.docs) { const r = rowOf(d.id, d.data()); if (!mine || r.t > mine.t) mine = r; }
+      for (const d of s.docs) { const r = rowOf(d.id, d.data()); if (isMine(r) && (!mine || r.t > mine.t)) mine = r; }
     }
     kb[mk] = mine ? mine.t : 0;
     saveBests(kb);
@@ -406,18 +423,23 @@ G.Ranking = (() => {
     const boards = new Set();
     for (const m of ['s', 'g']) for (const [p] of PERIODS) boards.add(m + '_' + ids[p]);
     for (const k of Object.keys(bests())) boards.add(k.split(':')[0]);
-    await Promise.all([...boards].map(b => fb.fs.runTransaction(async tx => {
+    // Una fila por escritura (las reglas sólo dejan quitar una cada vez): se
+    // repite mientras quede alguna tuya (la propia, la de IA, las de grupo...).
+    const one = b => fb.fs.runTransaction(async tx => {
       const s = await tx.get(sumRef(b));
-      if (!s.exists) return;
+      if (!s.exists) return false;
       const top = s.data().top || {};
       for (const [id, v] of Object.entries(top)) {
         if (!(v.uids || []).includes(fb.uid)) continue;
-        // Una fila por escritura (las reglas sólo dejan quitar una cada vez).
         const next = Object.assign({}, top); delete next[id];
         tx.set(sumRef(b), { top: next, me: '', ev: id });
-        return;
+        return true;
       }
-    }).catch(() => {})));
+      return false;
+    });
+    await Promise.all([...boards].map(async b => {
+      for (let n = 0; n < 12; n++) if (!(await one(b).catch(() => false))) break;
+    }));
     try { localStorage.removeItem(bestKey()); } catch (e) { /* nada */ }
   }
 
@@ -477,13 +499,18 @@ G.Ranking = (() => {
     cacheSet('s:' + b, undefined);
   }
 
-  /** Admin: quita la marca de un jugador o equipo de todas las tablas de ahora (y de `also`). */
+  /**
+   * Admin: quita la marca de un jugador o equipo de todas las tablas de ahora
+   * (y de `also`): la propia y la de IA ("_ai"), sea cual sea la reportada.
+   */
   async function removeEverywhere(e, mode, dexes = [], also = null) {
     const ids = boardIds();
     const boards = new Set(PERIODS.map(([p]) => mode + '_' + ids[p]));
     for (const d of dexes) boards.add(mode + '_' + ALL + '_p' + d);
     if (also) boards.add(also);
-    await Promise.all([...boards].map(b => removeEntry(b, e)));
+    const base = e.endsWith(AI_SFX) ? e.slice(0, -AI_SFX.length) : e;
+    // (Una tras otra en cada tabla: las dos tocan el mismo resumen.)
+    await Promise.all([...boards].map(async b => { await removeEntry(b, base); await removeEntry(b, base + AI_SFX); }));
   }
 
   /**
@@ -533,6 +560,6 @@ G.Ranking = (() => {
       t1: (v.tickets || {}).t1 || 0, t10: (v.tickets || {}).t10 || 0, owned: Object.keys(v.owned || {}).length }; });
   }
 
-  return { PERIODS, periodIds, board, runStarted, submitSolo, submitGroup, top, myRank, removeMine,
+  return { PERIODS, AI_SFX, periodIds, board, runStarted, submitSolo, submitGroup, top, myRank, removeMine,
            report, reported, isAdmin, reports, entryInfo, removeEntry, purgeAbove, removeEverywhere, setMarked, dismiss, markedAccounts };
 })();

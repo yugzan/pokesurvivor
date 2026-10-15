@@ -1,6 +1,6 @@
 /* ============ settings-ui.js — pantalla de Ajustes (PC y móvil) ============
  * Se abre por encima de lo que haya (menú o pausa) y al cerrar vuelve ahí.
- * Pestañas: Sonido · Gráficos · Controles · Cuenta · Acerca de.
+ * Pestañas: Sonido · Gráficos · Controles · Cuenta · IA · Acerca de.
  * Los ajustes son de este dispositivo (G.Settings / G.Audio en el navegador).
  */
 G.SettingsUI = (() => {
@@ -103,6 +103,8 @@ G.SettingsUI = (() => {
            </div>`;
     } else if (tab === 'acc') {
       renderAccount(box);
+    } else if (tab === 'ai') {
+      G.AgentUI.render(box);          // js/agent/ui.js
     } else {
       box.innerHTML = `<div class="about-logo">PokéSurvivor</div><p class="sub center">Versión ${esc(VERSION)}</p>`
         + `<p class="sub">Juego de fans <b>gratuito y sin ánimo de lucro</b>: sin anuncios ni compras. Pokémon y sus personajes son propiedad de Nintendo, Creatures y GAME FREAK; este proyecto no está afiliado a ellos.</p>`

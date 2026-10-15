@@ -3,6 +3,7 @@ G.Input = (() => {
   const down = new Set();
   const pressed = new Set();   // se limpia cada frame
   let mx = 0, my = 0, mdown = false;
+  let ext = null;              // eje externo (IA: js/agent/); manda si no tocas teclado ni pantalla
 
   const MOVE_KEYS = {
     up: ['keyw', 'arrowup'], down: ['keys', 'arrowdown'],
@@ -34,8 +35,10 @@ G.Input = (() => {
       if (MOVE_KEYS.right.some(k => down.has(k))) x += 1;
       if (MOVE_KEYS.up.some(k => down.has(k))) y -= 1;
       if (MOVE_KEYS.down.some(k => down.has(k))) y += 1;
-      return G.U.norm(x, y);
+      return x || y || !ext ? G.U.norm(x, y) : ext;
     },
+    setExternal(dx, dy) { const m = Math.hypot(dx, dy); ext = m > 1e-6 ? (m > 1 ? [dx / m, dy / m] : [dx, dy]) : null; },
+    clearExternal() { ext = null; },
     held(c) { return down.has(c); },
     /** true sólo en el frame en que se pulsó. */
     tap(c) { return pressed.has(c); },

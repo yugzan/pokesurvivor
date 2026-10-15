@@ -7,6 +7,10 @@
  */
 G.CHANGELOG = [
   { d: '2026-10-15', title: ['Traducción al chino tradicional', 'Traditional Chinese translation'], new: [
+    ['Conexión con IA: en Ajustes > IA puedes dejar que un agente de IA (Claude, Codex…) juegue contigo a través de MCP. Te da un código de 6 caracteres para emparejarlo; el agente puede elegir cartas y moverse con un piloto automático, y tú puedes seguir eligiendo cuando quieras.',
+     'AI connection: in Settings > AI you can let an AI agent (Claude, Codex…) play with you through MCP. You get a 6-character code to pair it; the agent can pick cards and move with an autopilot, and you can still choose yourself whenever you want.'],
+    ['Ranking: las partidas con IA cuentan, pero aparte de las tuyas y marcadas (🧠 con ayuda de IA, 🤖 ha jugado la IA). Con "Ocultar IA" ves sólo las partidas jugadas por personas.',
+     'Leaderboard: runs with AI count, but separately from your own and marked (🧠 AI-assisted, 🤖 played by AI). With "Hide AI" you only see runs played by people.'],
     ['El juego ahora incluye chino tradicional: menús, movimientos, objetos, misiones, avisos y nombres de los 966 Pokémon. Se puede cambiar el idioma en Ajustes > Gráficos.',
      'The game now includes Traditional Chinese: menus, moves, items, missions, messages and names for all 966 Pokémon. Change the language in Settings > Graphics.']
   ] },

@@ -543,6 +543,9 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 .rk-rep { background: none; border: 0; padding: 4px; cursor: pointer; opacity: .35; line-height: 0; }
 .rk-rep:hover { opacity: 1; }
 .rk-rep.sent { opacity: .12; cursor: default; }
+/* Marcas con IA (🤖 la IA jugó, 🧠 la IA ayudó; ranking-ui.js) */
+.rk-row .who .rk-ai { font-size: 14px; cursor: help; }
+.rk-ai-me { display: inline-block; margin-top: 4px; font-size: 13px; color: var(--muted); }
 .rk-row.mod-row { grid-template-columns: 54px 1fr auto; }
 .rk-row.mod-row.rep { grid-template-columns: 54px auto 1fr auto auto; }
 .mod-warn { color: #ff8a96 !important; }
@@ -842,3 +845,16 @@ a.btn { text-decoration: none; display: inline-block; color: var(--ink); }
   #dex-detail .btn { position: sticky; bottom: 0; order: 9; margin-top: auto; padding: 8px 6px; font-size: 15px;
     box-shadow: 0 -6px 10px rgba(5,10,25,.6); }
 }
+
+/* ---------------- conexión con IA (js/agent/) ---------------- */
+.card { position: relative; }
+.card.agent-pick { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(255,210,63,.35); }
+.agent-ov { position: absolute; left: 10px; right: 10px; bottom: 3px; height: 14px; display: flex; align-items: center; gap: 6px; pointer-events: none; font-size: 11px; }
+.agent-ov i { display: block; height: 4px; border-radius: 2px; background: var(--gold); max-width: 70%; }
+.agent-ov span { color: var(--gold); font-weight: 700; }
+.agent-ov b { margin-left: auto; color: var(--gold); }
+#agent-badge { position: fixed; top: 70px; left: 50%; transform: translateX(-50%); z-index: 60; pointer-events: none; padding: 3px 10px; border-radius: 999px;
+  background: rgba(5,10,25,.7); border: 1px solid rgba(255,210,63,.5); color: var(--gold); font-size: 13px; }
+.agent-code { font-size: 22px; letter-spacing: 3px; font-weight: 700; }
+.agent-url { display: block; margin-top: 4px; font-size: 12px; word-break: break-all; color: var(--muted); }
+.card:has(.agent-ov) { padding-bottom: 20px; }

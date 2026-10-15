@@ -2,12 +2,18 @@
  * Pestañas Solo / Grupo, periodo (diario ... histórico), todos o sólo amigos,
  * filtro por Pokémon (sólo en el histórico) y tu puesto abajo aunque no salgas
  * en el top. Lo leído se guarda 30 min (ver ranking.js).
+ * Las marcas con IA llevan 🤖 (la IA jugó) o 🧠 (la IA ayudó) y se pueden
+ * ocultar ("Ocultar IA": sólo aquí, en este navegador).
  */
 G.RankingUI = (() => {
   const $ = G.UI.$;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   let mode = 's', period = 'w', scope = 'all', dex = null;
   let token = 0;
+  const HIDE_AI = 'ps.rk.hideAi';
+  let hideAi = false;
+  try { hideAi = localStorage.getItem(HIDE_AI) === '1'; } catch (e) { /* nada */ }
+  const AI_MARK = { 1: ['🧠', 'Con ayuda de IA'], 2: ['🤖', 'Ha jugado la IA'] };
 
   function init() {
     const dl = $('rk-dl');
@@ -58,6 +64,16 @@ G.RankingUI = (() => {
       if (k !== 'a' && dex) { dex = null; $('rk-poke').value = ''; $('rk-clear').classList.add('hidden'); }
     }, 'chip');
     mk($('rk-scope'), [['all', 'Todos'], ['friends', 'Sólo amigos']], scope, k => { scope = k; }, 'chip');
+    const hb = document.createElement('button');
+    hb.className = 'chip rk-hideai' + (hideAi ? ' on' : '');
+    hb.textContent = 'Ocultar IA';
+    hb.title = 'Ocultar las marcas con IA (🤖 🧠)';
+    hb.onclick = () => {
+      hideAi = !hideAi;
+      try { localStorage.setItem(HIDE_AI, hideAi ? '1' : '0'); } catch (e) { /* nada */ }
+      tabs(); load();
+    };
+    $('rk-scope').appendChild(hb);
   }
 
   const fmt = t => t >= 3600 ? Math.floor(t / 3600) + ':' + G.U.mmss(t % 3600).padStart(5, '0') : G.U.mmss(t);
@@ -67,11 +83,12 @@ G.RankingUI = (() => {
     const list = $('rk-list');
     list.innerHTML = '<p class="sub">Cargando…</p>';
     $('rk-me').innerHTML = '';
-    let rows = [], me = null;
+    let rows = [], me = null, meAi = null;
     try {
-      [rows, me] = await Promise.all([
+      [rows, me, meAi] = await Promise.all([
         G.Ranking.top(mode, period, dex, scope === 'friends'),
-        G.Social.me ? G.Ranking.myRank(mode, period, dex) : Promise.resolve(null)
+        G.Social.me ? G.Ranking.myRank(mode, period, dex) : Promise.resolve(null),
+        G.Social.me && !hideAi ? G.Ranking.myRank(mode, period, dex, true) : Promise.resolve(null)
       ]);
     } catch (e) {
       if (my !== token) return;
@@ -80,6 +97,11 @@ G.RankingUI = (() => {
     }
     if (my !== token) return;
     list.innerHTML = '';
+    if (hideAi) {
+      rows = rows.filter(r => !r.ai);
+      // Tu puesto entre las marcas sin IA (si estás en la lista).
+      if (me && me.row) { const i = rows.findIndex(r => r.id === me.row.id); if (i >= 0) me = Object.assign({}, me, { pos: i + 1 }); }
+    }
     if (!rows.length) {
       list.innerHTML = '<p class="sub">Todavía no hay marcas aquí. ¡Sé el primero!</p>';
     }
@@ -100,6 +122,7 @@ G.RankingUI = (() => {
         : me && me.out ? '你尚未進入' + label + '前 50 名。確切排名請查看歷史排行。'
         : me ? label + '最佳排名：#' + me.pos + ' · ' + fmt(me.t)
         : '你尚無' + label + '紀錄。';
+      aiLine(meAi);
       return;
     }
     const where = en ? (mode === 's' ? 'solo' : 'group') + (dex ? ' with ' + mon : '')
@@ -110,6 +133,15 @@ G.RankingUI = (() => {
       : me ? (en ? `<span translate="no">Your best ${where} rank ${pn}: <b class="gold">#${me.pos}</b> · ${fmt(me.t)}</span>`
                  : `Tu mejor puesto ${pn} ${where}: <b class="gold">#${me.pos}</b> · ${fmt(me.t)}`)
       : (en ? `<span translate="no">You don't have a ${where} record ${pn} yet.</span>` : `Aún no tienes marca ${pn} ${where}.`);
+    aiLine(meAi);
+  }
+
+  /** Tu marca con IA (aparte de la tuya), si la tienes. */
+  function aiLine(m) {
+    if (!m || m.out || !m.pos) return;
+    const [ic, label] = AI_MARK[m.row && m.row.ai] || AI_MARK[2];
+    $('rk-me').insertAdjacentHTML('beforeend',
+      `<br><span class="rk-ai-me" title="${esc(label)}">${ic} <span>Tu marca con IA:</span> <b class="gold">#${m.pos}</b> · ${fmt(m.t)}</span>`);
   }
 
   function rowEl(r, pos, mine, b, done) {
@@ -120,8 +152,9 @@ G.RankingUI = (() => {
     mons.className = 'mons';
     r.dex.forEach((d, i) => { if (G.DEX_BY[d]) mons.appendChild(G.UI.spriteCanvas(d, 44, 40, { scale: 1, shiny: !!r.shiny[i] })); });
     el.appendChild(mons);
+    const am = AI_MARK[r.ai];
     el.insertAdjacentHTML('beforeend',
-      `<span class="who"><b translate="no">${r.names.map((n, i) => `<a href="#" class="plink" data-u="${esc(r.uids[i] || '')}">${esc(n)}</a>`).join(' · ')}</b><small>Nv. ${r.lv || 1} · ${(r.kills || 0).toLocaleString(G.I18n.locale)} derrotados</small></span>
+      `<span class="who"><b translate="no">${am ? `<span class="rk-ai" title="${esc(am[1])}">${am[0]}</span> ` : ''}${r.names.map((n, i) => `<a href="#" class="plink" data-u="${esc(r.uids[i] || '')}">${esc(n)}</a>`).join(' · ')}</b><small>${am ? esc(am[1]) + ' · ' : ''}Nv. ${r.lv || 1} · ${(r.kills || 0).toLocaleString(G.I18n.locale)} derrotados</small></span>
        <span class="time">${fmt(r.t)}</span>`);
     el.querySelectorAll('.plink').forEach(a => { a.onclick = e => { e.preventDefault(); G.ProfileUI.show(a.dataset.u); }; });
     // Reportar una marca sospechosa (no la tuya). Lo revisa el admin (mod-ui.js).

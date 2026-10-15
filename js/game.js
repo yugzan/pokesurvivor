@@ -109,7 +109,7 @@ G.Game = (() => {
     G.World.setBiome(0, true);
     biome = 0;
     time = 0; pendingLevels = 0;
-    runReal = performance.now(); tampered = false;
+    runReal = performance.now(); tampered = false; aiLevel = 0;
 
     pl = new G.Player(mon, perks, !!save.partnerShiny && G.DB.ownsShiny(mon.dex));
     banked = { t1: 0, t10: 0 };
@@ -285,6 +285,8 @@ G.Game = (() => {
     const coop = !!pl.uid;                    // sólo las partidas en grupo le ponen uid
     const wasHost = !!pl.coopHost;
     const team = coop ? G.Coop.members.slice() : [];
+    // IA de la partida (ver markAI): en grupo, la más alta del equipo.
+    const ai = Math.max(aiLevel, coop ? G.Coop.teamAi : 0);
     if (G.Coop.active) G.Coop.end();
     if (coop) G.Social.setPlaying(false);
     state = 'over';
@@ -320,7 +322,7 @@ G.Game = (() => {
     if (G.Social.me) G.Social.publishProfile();
 
     // Ranking: en solitario cada uno lo suyo; en grupo lo sube el anfitrión.
-    const mark = { t: Math.floor(time), lv: pl.level, kills: pl.kills };
+    const mark = { t: Math.floor(time), lv: pl.level, kills: pl.kills, ai };
     // Si la partida se ha tocado (ver clean()), no sube al ranking (sin avisar); lo demás, sí.
     const ok = clean();
     const sent = ok && !coop ? G.Ranking.submitSolo(Object.assign(mark, { dex: pl.dex, shiny: pl.shiny }))
@@ -345,6 +347,13 @@ G.Game = (() => {
    * Si algo salta, esa partida no sube al ranking (sin avisar) y nada más.
    */
   let runReal = 0, tampered = false;
+  /*
+   * Ayuda de IA en la partida (no es trampa: sube al ranking, pero marcada y
+   * aparte de tus marcas propias, ver ranking.js):
+   *   0 nada · 1 IA de ayuda (consejos de Jev; juegas tú) · 2 la IA juega (elige cartas, se mueve)
+   * Sólo sube durante la partida; vuelve a 0 al empezar otra.
+   */
+  let aiLevel = 0;
   function clean() {
     if (tampered) return false;
     if (time > (performance.now() - runReal) / 1000 + 10) return false;
@@ -873,6 +882,9 @@ G.Game = (() => {
     quit() { if (state !== 'ui' && state !== 'over') quitRun(); },
     /** Para grabar vídeos: abre las cartas de subir de nivel. */
     debugLevelUp() { tampered = true; pl.level++; pendingLevels++; },
+    /** La IA ha ayudado (1) o jugado (2) en esta partida: el nivel sólo sube. */
+    markAI(level) { const n = Math.min(2, level | 0); if (n > aiLevel) aiLevel = n; },
+    get aiLevel() { return aiLevel; },
     toUI() { state = 'ui'; Backdrop.restore(); },
     get state() { return state; }, get player() { return pl; }, st
   };

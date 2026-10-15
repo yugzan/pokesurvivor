@@ -97,7 +97,7 @@ G.ModUI = (() => {
         btn('Banear', 'danger', () => {
           if (!confirm('¿Banear a ' + g.names.join(', ') + '? No podrán volver a salir en el ranking y se borra su marca.')) return;
           busy(async () => {
-            const uids = g.e.split('_');
+            const uids = g.e.replace(/_ai$/, '').split('_');
             for (const u of uids) await G.Ranking.setMarked(u, true).catch(() => {});
             await G.Ranking.removeEverywhere(g.e, mode, [], g.board);
             await G.Ranking.dismiss(g.ids);
