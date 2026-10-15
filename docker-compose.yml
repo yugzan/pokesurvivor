@@ -1,0 +1,7 @@
+services:
+  web:
+    build: .
+    image: pokesurvivor
+    ports:
+      - "8080:80"
+    restart: unless-stopped
