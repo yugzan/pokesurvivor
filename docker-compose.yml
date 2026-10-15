@@ -3,5 +3,5 @@ services:
     build: .
     image: pokesurvivor
     ports:
-      - "8080:80"
+      - "${PORT:-8090}:80"   # otro puerto: PORT=9000 docker compose up -d
     restart: unless-stopped
