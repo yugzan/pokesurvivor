@@ -21,3 +21,6 @@ docs/CONTACTOS_CREADORES.md
 
 # Caché local de wrangler (Cloudflare)
 .wrangler/
+
+# Datos de tu despliegue en Docker (ver .env.example)
+.env

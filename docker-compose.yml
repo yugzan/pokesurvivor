@@ -4,4 +4,7 @@ services:
     image: pokesurvivor
     ports:
       - "${PORT:-8090}:80"   # otro puerto: PORT=9000 docker compose up -d
+    env_file:
+      - path: .env
+        required: false
     restart: unless-stopped

@@ -8,6 +8,9 @@ tools
 docs
 docker
 !docker/nginx.conf
+!docker/config.sh
+.env
+.env.*
 videos
 Dockerfile
 docker-compose.yml

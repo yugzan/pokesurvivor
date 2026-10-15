@@ -21,7 +21,8 @@
  * LIMIT en cloudflare/turn-worker.js y volver a activar el portero.
  */
 G.Signups = (() => {
-  const URL = 'https://turn.pokesurvivor.com/mau';
+  const TURN = window.PS_CONFIG && typeof window.PS_CONFIG.turnUrl === 'string' ? window.PS_CONFIG.turnUrl : 'https://turn.pokesurvivor.com/';
+  const URL = TURN ? TURN.replace(/\/?$/, '/') + 'mau' : '';
   const CACHE = 30 * 60 * 1000, K_OPEN = 'ps.mau.open';
   let open = true, checkedAt = 0;
   try {
@@ -31,7 +32,7 @@ G.Signups = (() => {
 
   const month = () => new Date(Date.now() - 8 * 3600e3).toISOString().slice(0, 7);
   const OFF = true;
-  const enabled = () => !OFF && /^https?:$/.test(location.protocol) && !(G.FIREBASE_CONFIG || {}).emulator;
+  const enabled = () => !OFF && !!URL && /^https?:$/.test(location.protocol) && !(G.FIREBASE_CONFIG || {}).emulator;
   const reportedKey = uid => 'ps.mau.' + uid + '.' + month();
 
   function remember(j) {

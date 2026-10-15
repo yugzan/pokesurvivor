@@ -31,12 +31,13 @@ G.Net = (() => {
   const ALLOW_RELAY = false, RETRY_MS = 15000;
 
   // ---------------- TURN (Cloudflare) ----------------
-  const TURN_URL = 'https://turn.pokesurvivor.com/';
+  // config.js (Docker) puede poner otro Worker, o '' para ir sin TURN.
+  const TURN_URL = window.PS_CONFIG && typeof window.PS_CONFIG.turnUrl === 'string' ? window.PS_CONFIG.turnUrl : 'https://turn.pokesurvivor.com/';
   let turn = null, turnAt = 0, turnReq = null;
   /** Pide (o reutiliza) credenciales TURN. Nunca falla: sin ellas, se sigue como antes. */
   function fetchTurn() {
     const fb = G.DB.fb;
-    if (!fb || fb.emulator || !fb.auth || !fb.auth.currentUser) return Promise.resolve(null);
+    if (!TURN_URL || !fb || fb.emulator || !fb.auth || !fb.auth.currentUser) return Promise.resolve(null);
     if (turn && Date.now() - turnAt < (turn.ttl - 600) * 1000) return Promise.resolve(turn);
     if (turnReq) return turnReq;
     turnReq = fb.auth.currentUser.getIdToken()
