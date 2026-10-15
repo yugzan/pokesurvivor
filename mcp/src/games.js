@@ -9,7 +9,7 @@ import { RateLimiter } from './http-util.js';
 export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export const CODE_LENGTH = 6;
 
-export class GameError extends Error {}
+export class GameError extends Error { name = 'GameError'; }
 
 export class GameStore {
   constructor(config) {
