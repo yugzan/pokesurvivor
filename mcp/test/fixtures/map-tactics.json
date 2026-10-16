@@ -1,143 +1,370 @@
 {
-  "rift": {
-    "id": "rift",
-    "kind": "goto",
-    "label": "Enter the rift 481 px away and fight a legendary in its arena (45 s left to enter)",
-    "numbers": {
-      "est_seconds_to_kill": 46,
-      "arena_time_limit_s": 120,
-      "rift_seconds_left": 45,
-      "walk_seconds": 4.8,
-      "distance_px": 481,
-      "hp_percent": 100,
-      "slot": 5,
-      "dps_vs_legend": 70,
-      "type_mult_vs_legends": 1,
-      "legend_hp": 3208,
-      "legend_contact_damage": 36,
-      "legend_likely_types": "psychic 26%, dragon 15%, flying 13%",
-      "win_reward": "bond (fuse 2 moves), 3 tickets, 50% x10 ticket, held item, 130 coins, XP",
-      "lose_or_timeout": "no reward; revived at 30% HP if KO; run goes on; map enemies wait",
-      "other_slots": "slot 2: 35 dps x1; slot 1: 32 dps x1; slot 4: 31 dps x1; slot 3: 29 dps x0.9"
-    }
-  },
-  "loot": {
-    "id": "loot",
-    "kind": "goto",
-    "label": "Pick up the held item Banda Focus 150 px to the E",
-    "numbers": {
-      "kind": "item",
-      "item": "Banda Focus",
-      "item_effect": "Un golpe que te dejaría KO te deja con 1 de vida (cada 60 s).",
-      "held_item_now": "none",
-      "distance_px": 150,
-      "walk_seconds": 1.5,
-      "enemies_near_loot": 0,
-      "rare_drops_on_floor": 1,
-      "expires": false
-    }
-  },
-  "altar": {
-    "id": "altar",
-    "kind": "goto",
-    "label": "Touch the altar 200 px away for the Imán power (pickup magnet radius x4, 25 s)",
-    "numbers": {
-      "power": "Imán",
-      "effect": "pickup magnet radius x4",
-      "duration_s": 25,
-      "distance_px": 200,
-      "walk_seconds": 2,
-      "enemies_within_200px_of_altar": 0,
-      "magnet_radius_now": 78,
-      "magnet_radius_with_power": 312,
-      "gems_within_new_radius": 0
-    }
-  },
-  "bigchest": {
-    "id": "bigchest",
-    "kind": "goto",
-    "label": "Open the locked chest 200 px away: stand next to it for 3.5 s",
-    "numbers": {
-      "open_seconds_needed": 3.5,
-      "distance_px": 200,
-      "walk_seconds": 2,
-      "stand_within_px": 56,
-      "enemies_within_200px_of_chest": 0,
-      "incoming_dps_near_chest": 0,
-      "hp_percent": 100,
-      "loot": "36 coins, 1-3 tickets, 15% x10 ticket, 50% held item, XP for 1 level",
-      "stepping_away": "progress drains 1.5x faster than it fills"
-    }
-  },
-  "break": {
-    "id": "break",
-    "kind": "goto",
-    "label": "Break the rock 192 px away with slot 5 (0.5 s)",
-    "numbers": {
-      "prop": "rock",
-      "prop_hp": 34,
-      "seconds_to_break": 0.5,
-      "dps_vs_prop": 70,
-      "slot": 5,
-      "distance_px": 192,
-      "stand_within_px": 79,
-      "enemies_within_250px": 0,
-      "drops": "40% 6 XP, 25% 2 coins, 6% berry"
-    }
-  },
-  "break_switch": {
-    "id": "break",
-    "kind": "goto",
-    "label": "Break (switch)",
-    "numbers": {
-      "prop": "chest",
-      "prop_hp": 22,
-      "seconds_to_break": 0.3,
-      "dps_vs_prop": 70,
-      "slot": 5,
-      "switches_slot": true,
-      "distance_px": 377,
-      "stand_within_px": 79,
-      "enemies_within_250px": 0,
-      "drops": "12-21 coins, a berry or a magnet, 20 XP, 8% held item"
-    }
-  },
-  "rift_choiceband": {
-    "id": "rift",
-    "kind": "goto",
-    "label": "Enter the rift (choice band)",
-    "numbers": {
-      "est_seconds_to_kill": 91,
-      "arena_time_limit_s": 120,
-      "rift_seconds_left": 45,
-      "walk_seconds": 5.7,
-      "distance_px": 467,
-      "hp_percent": 100,
-      "slot": 1,
-      "dps_vs_legend": 36,
-      "type_mult_vs_legends": 1,
-      "slot_fixed": "choice band",
-      "legend_hp": 3252,
-      "legend_contact_damage": 36,
-      "legend_likely_types": "psychic 26%, dragon 15%, flying 13%",
-      "win_reward": "bond (fuse 2 moves), 3 tickets, 50% x10 ticket, held item, 130 coins, XP",
-      "lose_or_timeout": "no reward; revived at 30% HP if KO; run goes on; map enemies wait"
-    }
-  },
-  "cover": {
-    "id": "cover",
-    "kind": "goto",
-    "label": "Take cover behind the tree 72 px away from 2 of 2 shooters",
-    "numbers": {
-      "shooters_nearby": 2,
-      "flying_shooters": 1,
-      "shooters_blocked": 2,
-      "incoming_shots": 1,
-      "cover": "tree",
-      "cover_distance_px": 72,
-      "chasers_within_260px": 0,
-      "note_flying": "their shots are blocked too, but they fly over obstacles to a new angle",
-      "floor_warning_casters_not_blocked": 1
-    }
+ "rift": {
+  "id": "rift",
+  "kind": "goto",
+  "label": "Enter the rift 481 px away and fight a legendary in its arena (45 s left to enter)",
+  "numbers": {
+   "est_seconds_to_kill": 46,
+   "arena_time_limit_s": 120,
+   "rift_seconds_left": 45,
+   "walk_seconds": 4.8,
+   "slot": 5,
+   "dps_vs_legend": 70,
+   "legend_hp": 3208,
+   "legend_hit_damage_to_you": 34,
+   "legend_hits_to_ko_you": 3,
+   "legend_likely_types": "psychic 26%, dragon 15%, flying 13%",
+   "win_reward": "bond (fuse 2 moves), 3 tickets, 50% x10 ticket, held item, 130 coins, XP",
+   "lose_or_timeout": "no reward; revived at 30% HP if KO; run goes on; map enemies wait",
+   "other_slots": "slot 2: 35 dps x1; slot 1: 32 dps x1; slot 4: 31 dps x1; slot 3: 29 dps x0.9",
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 86/86; stay put 2s: -0; 0 within 150px (+0 in 3s)"
   }
+ },
+ "loot": {
+  "id": "loot",
+  "kind": "goto",
+  "label": "Pick up the held item Banda Focus 150 px to the E",
+  "numbers": {
+   "kind": "item",
+   "item": "Banda Focus",
+   "item_effect": "Un golpe que te dejaría KO te deja con 1 de vida (cada 60 s).",
+   "held_item_now": "none",
+   "distance_px": 150,
+   "walk_seconds": 1.5,
+   "enemies_near_loot": 0,
+   "rare_drops_on_floor": 1,
+   "expires": false,
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 86/86; stay put 2s: -0; 0 within 150px (+0 in 3s)"
+  }
+ },
+ "altar": {
+  "id": "altar",
+  "kind": "goto",
+  "label": "Touch the altar 200 px away for the Imán power (pickup magnet radius x4, 25 s)",
+  "numbers": {
+   "power": "Imán",
+   "effect": "pickup magnet radius x4",
+   "duration_s": 25,
+   "distance_px": 200,
+   "walk_seconds": 2,
+   "enemies_within_200px_of_altar": 0,
+   "magnet_radius_now": 78,
+   "magnet_radius_with_power": 312,
+   "gems_within_new_radius": 0,
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 86/86; stay put 2s: -0; 0 within 150px (+0 in 3s)"
+  }
+ },
+ "bigchest": {
+  "id": "bigchest",
+  "kind": "goto",
+  "label": "Open the locked chest 200 px away: stand next to it for 3.5 s",
+  "numbers": {
+   "open_seconds_needed": 3.5,
+   "distance_px": 200,
+   "walk_seconds": 2,
+   "stand_within_px": 56,
+   "enemies_within_200px_of_chest": 0,
+   "incoming_dps_near_chest": 0,
+   "hp_percent": 100,
+   "loot": "36 coins, 1-3 tickets, 15% x10 ticket, 50% held item, XP for 1 level",
+   "stepping_away": "progress drains 1.5x faster than it fills",
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 86/86; stay put 2s: -0; 0 within 150px (+0 in 3s)"
+  }
+ },
+ "break": {
+  "id": "break",
+  "kind": "goto",
+  "label": "Break the rock 192 px away with slot 5 (0.5 s)",
+  "numbers": {
+   "prop": "rock",
+   "prop_hp": 34,
+   "seconds_to_break": 0.5,
+   "dps_vs_prop": 70,
+   "slot": 5,
+   "distance_px": 192,
+   "stand_within_px": 79,
+   "enemies_within_250px": 0,
+   "drops": "40% 6 XP, 25% 2 coins, 6% berry",
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 86/86; stay put 2s: -0; 0 within 150px (+0 in 3s)"
+  }
+ },
+ "break_switch": {
+  "id": "break",
+  "kind": "goto",
+  "label": "Break (switch)",
+  "numbers": {
+   "prop": "chest",
+   "prop_hp": 22,
+   "seconds_to_break": 0.3,
+   "dps_vs_prop": 70,
+   "slot": 5,
+   "switches_slot": true,
+   "distance_px": 377,
+   "stand_within_px": 79,
+   "enemies_within_250px": 0,
+   "drops": "12-21 coins, a berry or a magnet, 20 XP, 8% held item",
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 86/86; stay put 2s: -0; 0 within 150px (+0 in 3s)"
+  }
+ },
+ "rift_choiceband": {
+  "id": "rift",
+  "kind": "goto",
+  "label": "Enter the rift (choice band)",
+  "numbers": {
+   "est_seconds_to_kill": 91,
+   "arena_time_limit_s": 120,
+   "rift_seconds_left": 45,
+   "walk_seconds": 5.7,
+   "slot": 1,
+   "dps_vs_legend": 36,
+   "slot_fixed": "choice band",
+   "legend_hp": 3252,
+   "legend_hit_damage_to_you": 34,
+   "legend_hits_to_ko_you": 3,
+   "legend_likely_types": "psychic 26%, dragon 15%, flying 13%",
+   "win_reward": "bond (fuse 2 moves), 3 tickets, 50% x10 ticket, held item, 130 coins, XP",
+   "lose_or_timeout": "no reward; revived at 30% HP if KO; run goes on; map enemies wait",
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 86/86; stay put 2s: -0; 0 within 150px (+0 in 3s)"
+  }
+ },
+ "cover": {
+  "id": "cover",
+  "kind": "goto",
+  "label": "Take cover behind the tree 72 px away from 2 of 2 shooters",
+  "numbers": {
+   "shooters_nearby": 2,
+   "flying_shooters": 1,
+   "shooters_blocked": 2,
+   "incoming_shots": 1,
+   "cover": "tree",
+   "cover_distance_px": 72,
+   "chasers_within_260px": 0,
+   "note_flying": "their shots are blocked too, but they fly over obstacles to a new angle",
+   "floor_warning_casters_not_blocked": 1,
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 86/86; stay put 2s: -0; 0 within 150px (+0 in 3s)"
+  }
+ },
+ "fight": {
+  "id": "fight_s0",
+  "kind": "fight",
+  "label": "Fight the group around you with slot 1 (Impactrueno): keep 218 px from Silcoon (bug)",
+  "numbers": {
+   "slot": 1,
+   "move": "projectile electric (active)",
+   "dps_vs_nearby": 32,
+   "type_multiplier": 1,
+   "keep_distance_px": 218,
+   "target": "Silcoon (bug)",
+   "target_seconds_to_kill": 3.1,
+   "target_outruns_you": false,
+   "group_within_250px": 12,
+   "group_seconds_to_clear": 36.9,
+   "est_damage_while_clearing": 172,
+   "est_damage_next_3s": 52,
+   "survives_next_3s": false,
+   "danger_now": "HP 26/86; stay put 2s: -0; 7 within 150px (+0 in 3s)"
+  }
+ },
+ "evade": {
+  "id": "evade",
+  "kind": "evade",
+  "label": "Break out to the E gap and regroup",
+  "numbers": {
+   "surrounded_sectors_of_16": 2,
+   "enemies_within_200px": 2,
+   "gap_direction": "E",
+   "gap_clearance_px": 999,
+   "hp_percent": 30,
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 26/86; stay put 2s: -0; 7 within 150px (+0 in 3s)"
+  }
+ },
+ "circle_kite": {
+  "id": "circle_kite",
+  "kind": "circle",
+  "label": "Run a 322 px circle clockwise with the horde trailing behind, shooting with slot 1; pick up gems on the way",
+  "numbers": {
+   "center_distance_px": 322,
+   "radius_px": 322,
+   "tail_enemies": 2,
+   "gems_on_circle": 0,
+   "xp_on_circle": 0,
+   "route_clear": true,
+   "blocked_points_of_28": 0,
+   "slot": 1,
+   "dps_vs_nearby": 32,
+   "hit_range_px": 520,
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 26/86; stay put 2s: -0; 7 within 150px (+0 in 3s)"
+  }
+ },
+ "collect": {
+  "id": "collect",
+  "kind": "collect",
+  "label": "Collect 5 XP worth of gems 192 px to the NW",
+  "numbers": {
+   "xp_value": 5,
+   "distance_px": 192,
+   "enemies_near_gems": 1.1,
+   "xp_to_next_level": 62,
+   "est_damage_next_3s": 70,
+   "survives_next_3s": false,
+   "danger_now": "HP 26/86; stay put 2s: -0; 7 within 150px (+0 in 3s)"
+  }
+ },
+ "heal": {
+  "id": "heal",
+  "kind": "goto",
+  "label": "Grab the berry 224 px away",
+  "numbers": {
+   "hp_percent": 30,
+   "distance_px": 224,
+   "heals": "berry",
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 26/86; stay put 2s: -0; 7 within 150px (+0 in 3s)"
+  }
+ },
+ "thief": {
+  "id": "thief",
+  "label": "Chase the treasure Gholdengo 230 px away before it escapes (15 s left)",
+  "numbers": {
+   "loot": "x10 gacha ticket + 30 coins",
+   "seconds_until_escape": 14.7,
+   "thief_hp": 91,
+   "slot": 1,
+   "dps_vs_thief": 33,
+   "seconds_to_kill": 2.8,
+   "seconds_to_get_in_range": 0,
+   "can_catch_in_time": true,
+   "thief_flee_speed": 81,
+   "your_speed": 116,
+   "distance_px": 230,
+   "enemies_closer_than_thief": 0,
+   "thief_hurts_you": false,
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 86/86; stay put 2s: -0; 0 within 150px (+0 in 3s)"
+  },
+  "kind": "fight"
+ },
+ "shiny": {
+  "id": "shiny",
+  "label": "Hunt the shiny Munna (psychic) 259 px away with slot 1",
+  "numbers": {
+   "reward": "shiny joins your collection (new) + XP x5",
+   "shiny_hp": 52,
+   "xp": 20,
+   "slot": 1,
+   "dps_vs_shiny": 33,
+   "seconds_to_kill": 1.6,
+   "its_hit_damage_to_you": 15,
+   "outruns_you": false,
+   "distance_px": 259,
+   "leaves_if_ignored": false,
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 86/86; stay put 2s: -0; 0 within 150px (+0 in 3s)"
+  },
+  "kind": "fight"
+ },
+ "golden": {
+  "id": "golden",
+  "label": "Golden hour: kill the 4 golden enemies nearby with slot 1",
+  "numbers": {
+   "golden_within_420px": 4,
+   "their_xp": 32,
+   "xp_bonus": "x2 already counted",
+   "coins": "35% chance of 3 coins each",
+   "event_seconds_left": 30,
+   "slot": 1,
+   "dps_vs_nearby": 33,
+   "est_seconds_to_kill_all": 2.1,
+   "nearest_distance_px": 218,
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 86/86; stay put 2s: -0; 0 within 150px (+0 in 3s); golden hour"
+  },
+  "kind": "fight"
+ },
+ "lost": {
+  "id": "lost",
+  "label": "Find the lost Silcoon 235 px away and escort it to the marker",
+  "numbers": {
+   "step": "reach the pet, then escort it",
+   "distance_px": 235,
+   "escort_distance_px": 675,
+   "est_seconds_needed": 9,
+   "seconds_left": 120,
+   "pet_hp": 100,
+   "pet_max_hp": 100,
+   "enemies_within_150px_of_pet": 0,
+   "reward": "heal 50% of your HP, 60 coins, 1 ticket, 20%: the pet joins you",
+   "fail": "pet leaves if its HP hits 0 or time runs out; no other penalty",
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 86/86; stay put 2s: -0; 0 within 150px (+0 in 3s); lost pokemon"
+  },
+  "kind": "goto"
+ },
+ "lost_follow": {
+  "id": "lost",
+  "label": "Escort Silcoon to the marker 667 px away",
+  "numbers": {
+   "step": "escort to the marker",
+   "distance_px": 667,
+   "escort_distance_px": 667,
+   "est_seconds_needed": 6.6,
+   "seconds_left": 119,
+   "pet_hp": 100,
+   "pet_max_hp": 100,
+   "enemies_within_150px_of_pet": 0,
+   "reward": "heal 50% of your HP, 60 coins, 1 ticket, 20%: the pet joins you",
+   "fail": "pet leaves if its HP hits 0 or time runs out; no other penalty",
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 86/86; stay put 2s: -0; 0 within 150px (+0 in 3s); lost pokemon"
+  },
+  "kind": "goto"
+ },
+ "rift_danger": {
+  "id": "rift",
+  "label": "Enter the rift 435 px away and fight a legendary in its arena (45 s left to enter)",
+  "numbers": {
+   "est_seconds_to_kill": 102,
+   "arena_time_limit_s": 120,
+   "rift_seconds_left": 45,
+   "walk_seconds": 4.3,
+   "slot": 1,
+   "dps_vs_legend": 32,
+   "legend_hp": 3228,
+   "legend_hit_damage_to_you": 34,
+   "legend_hits_to_ko_you": 3,
+   "legend_likely_types": "psychic 26%, dragon 15%, flying 13%",
+   "win_reward": "bond (fuse 2 moves), 3 tickets, 50% x10 ticket, held item, 130 coins, XP",
+   "lose_or_timeout": "no reward; revived at 30% HP if KO; run goes on; map enemies wait",
+   "est_damage_next_3s": 0,
+   "survives_next_3s": true,
+   "danger_now": "HP 86/86; stay put 2s: -0; 0 within 150px (+0 in 3s); lost pokemon"
+  },
+  "kind": "goto"
+ }
 }

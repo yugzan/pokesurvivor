@@ -44,6 +44,31 @@
  *     altar, cofre con candado) (combat.js:559-563, world.js:345-353); sólo 'ranged', 'fan' y los
  *     jefes disparan proyectiles; 'beamer' y 'zoner' ponen avisos en el suelo que no se tapan
  *     (enemy.js:568-582); los que vuelan pasan por encima de todo y no rodean (enemy.js:49, :332, :381)
+ * Peligro (versión del 2026-10-16; simulate / dangerOf / addDanger, y el reflejo de autopilot.js):
+ *   - cada golpe: daño · tipos · clima · (1 − defensa) · 0,75 con cuerpo a cuerpo (player.js:228-239);
+ *     después, 0,45 s invulnerable (player.js:241): contactos y disparos, como mucho uno cada 0,45 s
+ *   - contacto: cada enemigo como mucho cada 0,55 s, aunque estés invulnerable (combat.js:663-667)
+ *   - avisos del suelo: quitan la invulnerabilidad al estallar, así que se suman (hazards.js:46-49)
+ *   - bomber: a < radios + 26 px prende la mecha y estalla en 1 s, 62 px, daño ×1,4 (enemy.js:314, :639-641)
+ *   - charger: a < 200 px apunta 0,55 s y embiste ×3,4 durante 0,42 s, luego 1,1 s andando (enemy.js:342-360)
+ *   - los que guardan distancia: se apartan a < 0,62·alcance, disparan a < alcance cada shotCd (enemy.js:361-372);
+ *     ranged un disparo, fan 3-5 en abanico al 65 %, beamer rayo con aviso de 1 s, zoner zona de 1,2 s
+ *     (enemy.js:549-582); disparos a 190 px/s que paran las paredes (combat.js:559-566)
+ *   - Banda Focus: el golpe que te dejaría KO te deja con 1 (cada 60 s) (player.js:248-251)
+ *   - mareas: cada 38-56 s una avalancha desde un lado (spawner.js:137-146)
+ *   - jefes: 'far' se aparta a < 170 px y rodea a < 300; 'close' persigue a ×1,1 (×1,25 enfurecido) (enemy.js:423-441)
+ * Objetivos raros (versión del 2026-10-16; specialTactics):
+ *   - duende del tesoro: 92 px/s, huye en zigzag (±0,7 rad) a todo correr a < 300 px, si no al 35 %
+ *     (enemy.js:283-296); se va a los 15 s (events.js:23, enemy.js:920); no hace daño (combat.js:664);
+ *     Meowth 20 monedas de 5, Gholdengo 6 de 5 y un ticket ×10 (enemy.js:181-186, game.js:490)
+ *   - shiny: vida ×2, experiencia ×5 (enemy.js:84-90); es tuyo al caer, o +300 monedas si ya lo tenías
+ *     (game.js:271-281); no se va nunca (enemy.js:927)
+ *   - hora dorada: 30 s (events.js:22, :72-74); dorados = experiencia ×2 y 35 % de 3 monedas (enemy.js:93-96,
+ *     :179); también los que salen durante (spawner.js:88)
+ *   - Pokémon perdido: tocarlo, te sigue y a < 56 px de la marca se salva; enemigos encima le quitan
+ *     min(30, Σ 4 + 0,12·daño) cada 0,5 s; 100 de vida; 120 s; premio: 50 % de tu vida, 12 monedas de 5,
+ *     un ticket y 1 de cada 5 se une a ti (events.js:130-230, game.js:261-266)
+ *   - grieta: golpe del legendario 36 + t/20 de contacto (rift.js:147), con su tipo más probable
  */
 G.Tactics = (() => {
   const U = G.U;
@@ -413,6 +438,262 @@ G.Tactics = (() => {
   }
   function slotDpsVs(pl, slot, e) { let v = 0; for (const m of slot.moves) v += moveDps(pl, m, e); return v; }
 
+  // ---------------- peligro: el daño que te van a hacer (simulación con las reglas) ----------------
+  // Se simulan unos segundos (paso de 0,1 s): tú sigues el camino de la táctica y cada enemigo hace lo
+  // que dicen sus reglas (persigue, embiste, se aparta y dispara, prende la mecha...). El daño pasa por
+  // las mismas cuentas que player.js hurt (tipos, clima, defensa, −25 % con cuerpo a cuerpo) y por la
+  // invulnerabilidad de 0,45 s tras cada golpe (contactos y disparos); los avisos del suelo la saltan.
+  // Mientras, tu hueco va tumbando al más cercano a tiro (su daño por segundo). Simplificaciones: los
+  // enemigos van en línea recta (sin rodear paredes: lo prudente); los jefes cuentan por contacto (según
+  // su modo 'far'/'close'), por sus disparos ya en el aire y por sus avisos ya en el suelo.
+  const INVULN = 0.45, TOUCH_CD = 0.55, SIM_DT = 0.1, SIM_H = 3, SHOT_SPD = 190;
+  const SHOOTERS = ['ranged', 'fan', 'beamer', 'zoner'];
+
+  /** Lo que te quita un golpe (player.js hurt). */
+  function taken(pl, amount, type, pure) {
+    let a = amount;
+    if (type) a *= G.Types.mult(type, pl.mon.types) * G.Weather.mult(type);
+    if (pure) return Math.max(1, a);
+    const close = pl.activeGroup().some(m => m.kind === 'melee') ? 0.75 : 1;
+    return Math.max(1, a * (1 - pl.reduction) * close);
+  }
+
+  /** Cuándo choca un disparo con una pared o un objeto sólido (combat.js resolve). */
+  function shotStop(x, y, vx, vy, r, H) {
+    for (let t = SIM_DT; t <= H + 1e-6; t += SIM_DT) if (G.World.projectileBlock(x + vx * t, y + vy * t, r)) return t;
+    return Infinity;
+  }
+
+  /** Foto de todo lo que puede hacerte daño (una vez por facts). */
+  function simBase(pl, F) {
+    if (F._sim) return F._sim;
+    const foes = [];
+    for (const x of F.enemies) {
+      const e = x.e;
+      if (x.d > 560 && !e.boss) continue;
+      const shot = e.def && e.def.shotCd ? e.shotDmg() : (e.def && e.def.shotDmg) || 10;
+      foes.push({
+        id: e.id, x: e.x, y: e.y, r: e.r || 10, hp: e.hp, boss: !!e.boss,
+        es: Math.max(10, e.spd * (1 - (e.slow || 0)) * G.Weather.speedFor(e.types)),
+        hit: taken(pl, e.dmg, e.atkType), raw: e.dmg, type: e.atkType, beh: e.behavior,
+        keeper: KEEPERS.includes(e.behavior) && !e.boss,
+        range: (e.def && e.def.range) || 200, shotCd: (e.def && e.def.shotCd) || 2, shotT: e.shotCd || 0, shot,
+        fanN: (e.def && e.def.fanN) || 5,
+        phase: e.phase, pt: e.pt || 0, dx: e.dx || 0, dy: e.dy || 0, touch: e.touchCd || 0,
+        fuse: e.behavior === 'bomber' && e.phase === 'fuse',
+        // Jefe (enemy.js:423-441): 'far' se aparta a < 170 px y te rodea a < 300; 'close' va a por ti a ×1,1
+        // (×1,25 enfurecido); mientras lanza un ataque se queda quieto (sus avisos ya están en el suelo).
+        bossMode: e.boss ? (e.ai && e.ai.cast ? 'cast' : e.ai ? e.ai.mode : 'close') : null, fury: e.ai && e.ai.fury ? 1.25 : 1
+      });
+    }
+    const shots = [];
+    for (const s of G.Projectiles.all()) {
+      if (s.friendly || s.dead || (s.x - pl.x) ** 2 + (s.y - pl.y) ** 2 > 520 * 520) continue;
+      shots.push({ x: s.x, y: s.y, vx: s.vx || 0, vy: s.vy || 0, r: s.r || 7, t0: 0, hit: taken(pl, s.dmg || 10, s.mtype), stop: shotStop(s.x, s.y, s.vx || 0, s.vy || 0, s.r || 7, SIM_H) });
+    }
+    const zones = [];
+    for (const h of (G.Hazards ? G.Hazards.all : [])) {
+      if (h.hit) continue;
+      const at = Math.max(0, h.delay - h.t);
+      if (at > SIM_H) continue;
+      zones.push({ h, at, hit: taken(pl, h.pct ? Math.max(h.dmg, pl.maxHp * h.pct) : h.dmg, h.type, !!h.pure) });
+    }
+    return (F._sim = { foes, shots, zones });
+  }
+
+  /**
+   * Simula H s. spec: { at(x, y, foes, thief) -> punto al que vas o null (quieto), within, arriveSafe,
+   * dps, range (tu hueco), thief }. Devuelve { dmg, dmg2, ko, cum[] } (daño a los 3 s, a los 2 s,
+   * segundos hasta el KO o null, daño acumulado por paso).
+   */
+  function simulate(pl, F, spec = {}, H = SIM_H) {
+    const B = simBase(pl, F);
+    const foes = B.foes.map(f => ({ ...f }));
+    const byId = new Map(foes.map(f => [f.id, f]));
+    const shots = B.shots.map(s => ({ ...s }));
+    const zones = B.zones.map(z => ({ ...z }));
+    const thief = spec.thief ? { ...spec.thief } : null;
+    const spd = Math.max(30, drySpd(pl)), wSlow = (G.World.liquidEffect(pl.mon.types) || {}).slow || 1, rFree = Math.max(8, pl.r * 0.8);
+    let px = pl.x, py = pl.y, hp = pl.hp, inv = Math.max(0, pl.invuln || 0);
+    let sash = pl.hasItem('focussash') && performance.now() - (pl.sashT || -1e9) > 60000;
+    let dmg = 0, dmg2 = 0, ko = null, safe = false;
+    const cum = [];
+    const hurt = (amt, t, pure) => {
+      if (!pure && t < inv) return;
+      dmg += amt; hp -= amt; inv = t + INVULN;
+      if (hp <= 0) { if (sash) { sash = false; hp = 1; inv = t + 1.2; } else if (ko == null) ko = Math.round(t * 10) / 10; }
+    };
+    const fire = (f, ux, uy, t) => {
+      if (f.beh === 'beamer') zones.push({ h: { kind: 'beam', x: f.x, y: f.y, angle: Math.atan2(uy, ux), len: 360, w: 22 }, at: t + 1.0, hit: taken(pl, f.shot * 1.05, f.type) });
+      else if (f.beh === 'zoner') zones.push({ h: { kind: 'zone', x: px, y: py, r: 44 }, at: t + 1.2, hit: taken(pl, f.shot * 0.95, f.type) });
+      else {
+        const n = f.beh === 'fan' ? f.fanN : 1, spread = n === 3 ? 0.6 : 0.9, k = f.beh === 'fan' ? 0.65 : 1, base = Math.atan2(uy, ux);
+        for (let i = 0; i < n; i++) {
+          const a = base + (n === 1 ? 0 : (i / (n - 1) - 0.5) * spread), vx = Math.cos(a) * SHOT_SPD, vy = Math.sin(a) * SHOT_SPD;
+          shots.push({ x: f.x, y: f.y, vx, vy, r: 7, t0: t, hit: taken(pl, f.shot * k, f.type), stop: t + shotStop(f.x, f.y, vx, vy, 7, Math.max(0.1, H - t)) });
+        }
+      }
+    };
+    for (let t = SIM_DT; t <= H + 1e-6; t += SIM_DT) {
+      // Tú.
+      const goal = spec.at ? spec.at(px, py, byId, thief) : null;
+      if (goal) {
+        const d = Math.hypot(goal[0] - px, goal[1] - py);
+        if (d > (spec.within || 4)) {
+          const v = spd * (wSlow < 1 && G.World.isLiquid(px, py) ? wSlow : 1) * SIM_DT, k = Math.min(1, v / d);
+          const nx = px + (goal[0] - px) * k, ny = py + (goal[1] - py) * k;
+          if (G.World.isFree(nx, ny, rFree)) { px = nx; py = ny; }
+        } else if (spec.arriveSafe) safe = true;
+      }
+      if (safe) { while (cum.length < Math.round(H / SIM_DT)) cum.push(dmg); break; }
+      if (thief) {
+        const dx = thief.x - px, dy = thief.y - py, d = Math.hypot(dx, dy) || 1, v = thief.es * (d < 300 ? 1 : 0.35) * 0.88 * SIM_DT;
+        thief.x += dx / d * v; thief.y += dy / d * v;
+      }
+      // Ellos.
+      const touching = [];
+      for (const f of foes) {
+        if (f.dead) continue;
+        f.touch -= SIM_DT;
+        const dx = px - f.x, dy = py - f.y, d = Math.hypot(dx, dy) || 1;
+        if (f.fuse) { if ((f.pt -= SIM_DT) <= 0) f.dead = true; continue; }       // su aviso ya está en el suelo
+        if (f.keeper) {
+          const keep = f.range * 0.82;
+          if (d < keep * 0.75) { f.x -= dx / d * f.es * 0.8 * SIM_DT; f.y -= dy / d * f.es * 0.8 * SIM_DT; }
+          else if (d > keep) { f.x += dx / d * f.es * SIM_DT; f.y += dy / d * f.es * SIM_DT; }
+          if ((f.shotT -= SIM_DT) <= 0 && d < f.range) { f.shotT = f.shotCd; if (SHOOTERS.includes(f.beh)) fire(f, dx / d, dy / d, t); }
+          continue;
+        }
+        if (f.beh === 'bomber' && d < f.r + pl.r + 26) {         // prende la mecha: estalla en 1 s, 62 px, daño ×1,4
+          f.fuse = true; f.pt = 1.0;
+          zones.push({ h: { kind: 'zone', x: f.x, y: f.y, r: 62 }, at: t + 1.0, hit: taken(pl, f.raw * 1.4, f.type) });
+          continue;
+        }
+        let v = f.es;
+        if (f.boss) {
+          if (f.bossMode === 'cast') continue;
+          if (f.bossMode === 'far' && d < 300) {
+            if (d < 170) { f.x -= dx / d * f.es * SIM_DT; f.y -= dy / d * f.es * SIM_DT; }
+            continue;                                             // te rodea sin acercarse
+          }
+          v = f.es * 1.1 * f.fury;
+        } else if (f.beh === 'charger') {                                  // apunta 0,55 s y embiste ×3,4 durante 0,42 s
+          f.pt -= SIM_DT;
+          if (f.phase === 'aim') { v = 0; if (f.pt <= 0) { f.phase = 'dash'; f.pt = 0.42; f.dx = dx / d; f.dy = dy / d; } }
+          else if (f.phase === 'dash') { if (f.pt <= 0) { f.phase = 'walk'; f.pt = 1.1; } }
+          else if (d < 200 && f.pt <= 0) { f.phase = 'aim'; f.pt = 0.55; v = 0; }
+          if (f.phase === 'dash') {
+            const mv = f.es * 3.4 * SIM_DT;
+            f.x += f.dx * mv; f.y += f.dy * mv;
+            if (Math.hypot(px - f.x, py - f.y) <= f.r + pl.r + 1) touching.push(f);
+            continue;
+          }
+        }
+        // No se paran al tocarte: van hasta tu centro (enemy.js update; sólo se separan entre ellos), así que
+        // quien te alcanza sigue encima hasta que le sacas su radio + el tuyo (y te vuelve a pegar a los 0,55 s).
+        const mv = Math.min(v * SIM_DT, d);
+        if (mv > 0) { f.x += dx / d * mv; f.y += dy / d * mv; }
+        if (Math.hypot(px - f.x, py - f.y) <= f.r + pl.r + 1) touching.push(f);
+      }
+      // Tu hueco tumba al más cercano a tiro.
+      if (spec.dps > 0) {
+        let tg = null, td = spec.range || 0;
+        for (const f of foes) { if (f.dead) continue; const d = Math.hypot(f.x - px, f.y - py); if (d <= td) { td = d; tg = f; } }
+        if (tg && (tg.hp -= spec.dps * SIM_DT) <= 0) tg.dead = true;
+      }
+      // Daño: avisos del suelo (saltan la invulnerabilidad), disparos y contactos.
+      for (const z of zones) if (!z.done && z.at <= t + 1e-6) { z.done = true; if (G.Hazards.inside(z.h, px, py, pl.r)) hurt(z.hit, t, true); }
+      for (const s of shots) {
+        if (s.done || t < s.t0) continue;
+        if (t > s.stop || t - s.t0 > 2.4) { s.done = true; continue; }
+        const sx = s.x + s.vx * (t - s.t0), sy = s.y + s.vy * (t - s.t0);
+        if ((sx - px) ** 2 + (sy - py) ** 2 < (s.r + pl.r) ** 2) { s.done = true; hurt(s.hit, t); }
+      }
+      touching.sort((a, b) => b.hit - a.hit);
+      for (const f of touching) if (!f.dead && f.touch <= 0) { f.touch = TOUCH_CD; if (spec.onTouch) spec.onTouch(t, f.id, t >= inv); hurt(f.hit, t); }
+      cum.push(dmg);
+      if (t <= 2 + 1e-6) dmg2 = dmg;
+    }
+    return { dmg: Math.round(dmg), dmg2: Math.round(dmg2), ko, cum };
+  }
+
+  /** Camino que sigue cada táctica en la simulación (lo mismo que hace el piloto, en línea recta). */
+  function simSpec(pl, F, c) {
+    const s = F.slots[Number.isInteger(c.slot) ? c.slot : pl.active] || F.slots[pl.active];
+    const spec = { dps: s ? s.dps : 0, range: s ? Math.min(520, s.range) : 0 };
+    const keepFrom = (id, keep) => (x, y, by, th) => {
+      const f = th && th.id === id ? th : by.get(id);
+      if (!f || f.dead) return null;
+      const [ux, uy] = U.norm(x - f.x, y - f.y);
+      return [f.x + ux * keep, f.y + uy * keep];
+    };
+    switch (c.kind) {
+      case 'fight': return { ...spec, within: 6, at: keepFrom(c.targetId, c.keep || 200), thief: c.thief || null };
+      case 'evade': return { ...spec, at: (x, y) => [x + c.dir[0] * 100, y + c.dir[1] * 100] };
+      case 'circle': {
+        const [ax, ay] = c.anchor;
+        return { ...spec, at: (x, y) => { const th = Math.atan2(y - ay, x - ax) + c.dir * 0.55; return [ax + Math.cos(th) * c.R, ay + Math.sin(th) * c.R]; } };
+      }
+      case 'collect': case 'goto': return { ...spec, within: Math.max(4, c.within != null ? c.within : 10), arriveSafe: c.id === 'rift', at: () => c.goal };
+      case 'lure': {
+        const [tx, ty] = c.trap, [ux, uy] = U.norm(tx - pl.x, ty - pl.y);
+        const g = [tx + (ux * 0.94 - uy * 0.34) * 120, ty + (uy * 0.94 + ux * 0.34) * 120];
+        return { ...spec, at: () => g };
+      }
+      default: return spec;
+    }
+  }
+
+  // Cuántos hay cerca y cómo cambia (para ver llegar una marea: spawner.js update).
+  const hist = [];          // [{ t, n150, n300 }] con el reloj de la partida
+  function countsAgo(now, s) {
+    let best = null;
+    for (const h of hist) if (h.t >= now - s - 0.15) { best = h; break; }
+    return best;
+  }
+
+  /**
+   * Peligro del momento (una vez por facts): quedarse quieto 2-3 s, cuántos a 150/300 px y cuánto han
+   * cambiado, marea y evento. surge: a 150 px hay 6 o más y 4+ más que hace 1 s, o a 300 px 10+ más que hace 2 s
+   * (en las partidas de prueba del 16-10-2026 los dos golpes más grandes llegaron justo después de eso).
+   */
+  function dangerOf(pl, F) {
+    if (F._danger) return F._danger;
+    const now = G.Game.st ? G.Game.st.time : 0;
+    let n150 = 0, n300 = 0;
+    for (const x of F.enemies) { if (x.d <= 150) n150++; if (x.d <= 300) n300++; }
+    const last = hist[hist.length - 1];
+    if (!last || now - last.t >= 0.2 || now < last.t) {
+      if (last && now < last.t) hist.length = 0;               // partida nueva
+      hist.push({ t: now, n150, n300 });
+      while (hist.length && hist[0].t < now - 4) hist.shift();
+    }
+    const a1 = countsAgo(now, 1), a2 = countsAgo(now, 2), a3 = countsAgo(now, 3);
+    const d150_1 = a1 ? n150 - a1.n150 : 0, d300_2 = a2 ? n300 - a2.n300 : 0, d150_3 = a3 ? n150 - a3.n150 : 0;
+    const surge = (n150 >= 6 && d150_1 >= 4) || d300_2 >= 10;
+    const act = F.slots[pl.active];
+    const stay = simulate(pl, F, { dps: act ? act.dps : 0, range: act ? Math.min(520, act.range) : 0 });
+    const ev = G.Events.info;
+    const event = ev ? (ev.id === 'horde' ? 'horde ' + ev.type : ev.id === 'gold' ? 'golden hour' : 'lost pokemon') : '';
+    const boss = F.enemies.some(x => x.e.boss);
+    const sg = d150_3 >= 0 ? '+' : '';
+    const text = `HP ${Math.round(pl.hp)}/${Math.round(pl.maxHp)}; stay put 2s: -${stay.dmg2}${stay.dmg2 >= pl.hp ? ' (KO)' : ''}; ` +
+      `${n150} within 150px (${sg}${d150_3} in 3s)${surge ? '; SURGE' : ''}${event ? '; ' + event : ''}${boss ? '; boss' : ''}`;
+    return (F._danger = { stay, n150, n300, d150_1, d150_3, d300_2, surge, event, text: text.length > 80 ? text.slice(0, 79) + '…' : text, t: now });
+  }
+
+  /** Daño previsto de una táctica y los tres números de peligro que se le añaden. */
+  function addDanger(pl, F, c) {
+    const D = dangerOf(pl, F);
+    const r = c._sim || simulate(pl, F, simSpec(pl, F, c));
+    c.danger = r; delete c._sim;
+    const keys = Object.keys(c.numbers || {});
+    const base = {};
+    for (const k of keys.slice(0, 13)) base[k] = c.numbers[k];     // 13 + 3 = 16 (mcp/src/jev-http.js LIMITS)
+    c.numbers = { ...base, est_damage_next_3s: r.dmg, survives_next_3s: r.ko == null, danger_now: D.text };
+    return r;
+  }
+
   // ---------------- vuelta grande (circle kite) ----------------
   // La táctica de siempre en un survivor: correr en un círculo grande alrededor de un punto despejado
   // con la horda dentro/detrás. Casi todos son más lentos (enemies.js: 45–80 px/s, tú ~105): se
@@ -501,6 +782,18 @@ G.Tactics = (() => {
   const dirName = ([dx, dy]) => DIR8[((Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) % 8) + 8) % 8];
   const nameOf = e => (e && (e.name || 'enemy')) + (e && e.types ? ' (' + e.types.join('/') + ')' : '');
 
+  /** Salir del cerco por el mejor hueco (también lo usa el reflejo de autopilot.js aunque no esté entre las candidatas). */
+  function escapeCandidate(pl, F, danger = 0) {
+    const hp = F.hpFrac, near200 = F.enemies.filter(x => x.d < 200 && !x.th.keeper).length;
+    const gap = F.gap || { dir: [1, 0], clear: 0 };
+    return {
+      id: 'evade', kind: 'evade', dir: gap.dir,
+      label: `Break out to the ${dirName(gap.dir)} gap and regroup`,
+      score: 0.2 + 0.08 * F.occupied / 2 + (hp < 0.35 ? 0.35 : 0) + Math.min(0.3, danger * 0.25),
+      numbers: { surrounded_sectors_of_16: F.occupied, enemies_within_200px: near200, gap_direction: dirName(gap.dir), gap_clearance_px: Math.round(gap.clear), hp_percent: Math.round(hp * 100) }
+    };
+  }
+
   /**
    * 3–6 tácticas con sus números. Cada una: { id, kind, label, score, slot?, keep?, target?, goal?, dir?, numbers }.
    * score: la puntuación del respaldo (sin Jev), 0..1 aprox.
@@ -524,19 +817,29 @@ G.Tactics = (() => {
       let score = 0.55 * (s.dps / Math.max(1, best.dps)) + (cur ? 0.05 : 0) - (s.melee ? 0.12 * Math.min(3, near200) / 3 : 0)
         - (hp < 0.35 ? 0.2 : 0);
       if (tg.th.fast && tg.d < 260) score += 0.15;          // el que no se deja atrás: hay que tumbarlo
-      out.push({
+      // La pelea es contra el grupo de alrededor, no contra uno: cuánto se tarda en limpiarlo y cuánto
+      // daño te harán mientras (simulación de 3 s; más allá, al mismo ritmo).
+      const group = F.enemies.filter(x => x.d <= 250);
+      const groupHp = group.reduce((a, x) => a + x.e.hp, 0);
+      const clearS = groupHp / Math.max(1, s.dps);
+      const c = {
         id: 'fight_s' + s.index, kind: 'fight', slot: s.index, keep: s.keep, targetId: tg.e.id,
-        label: `Fight with slot ${s.index + 1} (${s.moves.map(m => m.name).join(' + ')}): keep ${Math.round(s.keep)} px from ${nameOf(tg.e)}`,
+        label: `Fight the group around you with slot ${s.index + 1} (${s.moves.map(m => m.name).join(' + ')}): keep ${Math.round(s.keep)} px from ${nameOf(tg.e)}`,
         score,
         numbers: {
-          slot: s.index + 1, active_now: cur, move_kind: s.main.kind, move_type: s.main.type,
-          dps_vs_nearby: Math.round(s.dps), type_multiplier: r1(s.typeK), hit_range_px: Math.round(s.range), keep_distance_px: Math.round(s.keep),
-          target: nameOf(tg.e), target_distance_px: Math.round(tg.d), target_seconds_to_kill: r1(tg.ttk),
-          target_outruns_you: tg.th.fast, target_shoots: tg.th.keeper,
-          ...(s.orbit && !cur ? { note: 'switching to it re-creates its orbs' } : {}),
-          ...(!cur && pl.slots[pl.active] && pl.slots[pl.active].some(m => m.kind === 'orbit') ? { note: 'switching clears the orbs of the current slot' } : {})
+          slot: s.index + 1, move: s.main.kind + ' ' + s.main.type + (cur ? ' (active)' : ''),
+          dps_vs_nearby: Math.round(s.dps), type_multiplier: r1(s.typeK), keep_distance_px: Math.round(s.keep),
+          target: nameOf(tg.e), target_seconds_to_kill: r1(tg.ttk), target_outruns_you: tg.th.fast,
+          group_within_250px: group.length, group_seconds_to_clear: r1(clearS)
         }
-      });
+      };
+      const sim = c._sim = simulate(pl, F, simSpec(pl, F, c));
+      const i = Math.min(sim.cum.length, Math.max(1, Math.round(clearS / SIM_DT))) - 1;
+      // Más allá de 3 s, al mismo ritmo; con tope en 2× tu vida máxima (pasado eso sólo dice "te tumban").
+      c.numbers.est_damage_while_clearing = Math.min(Math.round(pl.maxHp * 2), Math.round(clearS <= SIM_H ? (sim.cum[i] || 0) : sim.dmg * clearS / SIM_H));
+      if (s.orbit && !cur) c.numbers.note = 'switching to it re-creates its orbs';
+      else if (!cur && pl.slots[pl.active] && pl.slots[pl.active].some(m => m.kind === 'orbit')) c.numbers.note = 'switching clears the orbs of the current slot';
+      out.push(c);
     }
 
     // Jefe.
@@ -553,14 +856,7 @@ G.Tactics = (() => {
     }
 
     // Salir del cerco.
-    if (F.gap && (F.occupied >= 4 || near200 >= 3 || hp < 0.5)) {
-      out.push({
-        id: 'evade', kind: 'evade', dir: F.gap.dir,
-        label: `Break out to the ${dirName(F.gap.dir)} gap and regroup`,
-        score: 0.2 + 0.08 * F.occupied / 2 + (hp < 0.35 ? 0.35 : 0) + Math.min(0.3, danger * 0.25),
-        numbers: { surrounded_sectors_of_16: F.occupied, enemies_within_200px: near200, gap_direction: dirName(F.gap.dir), gap_clearance_px: Math.round(F.gap.clear), hp_percent: Math.round(hp * 100) }
-      });
-    }
+    if (F.gap && (F.occupied >= 4 || near200 >= 3 || hp < 0.5)) out.push(escapeCandidate(pl, F, danger));
 
     // Recoger experiencia: el grupo de gemas más jugoso.
     if (F.gems.length) {
@@ -645,14 +941,22 @@ G.Tactics = (() => {
       out.push({ id: 'roam', kind: 'roam', label: 'Nothing nearby: roam to find enemies and gems', score: 0.3, numbers: {} });
     }
     mapTactics(pl, F, out, { near200, hp, calm, ranked });
+    specialTactics(pl, F, out, { ranked });
+    // Peligro de cada una (lo mismo para todas: simulación de 3 s siguiendo su camino).
+    for (const c of out) addDanger(pl, F, c);
+    // Sin Jev (respaldo): si alguna te deja vivo, las que te dejan KO no van primero.
+    const anySafe = out.some(c => c.danger.ko == null);
+    if (anySafe) for (const c of out) if (c.danger.ko != null) c.score -= 0.6;
     out.sort((a, b) => b.score - a.score);
-    // Máximo 6, pero salir del cerco, curarse y la grieta (rara y con 45 s) no se quedan fuera:
-    // sustituyen a la peor que no sea de las protegidas.
-    const KEEP = ['evade', 'heal', 'rift'];
+    // Máximo 6, pero salir del cerco, curarse, la grieta y los objetivos raros (duende, shiny, perdido)
+    // no se quedan fuera, ni la que menos daño te hace: sustituyen a la peor que no sea de las protegidas.
+    const safest = out.reduce((a, c) => (!a || c.danger.dmg < a.danger.dmg ? c : a), null);
+    const KEEP = ['evade', 'heal', 'rift', 'thief', 'shiny', 'lost'];
+    const kept = c => KEEP.includes(c.id) || c === safest;
     const top = out.slice(0, 6);
     for (const c of out.slice(6)) {
-      if (!KEEP.includes(c.id)) continue;
-      const i = top.map(x => !KEEP.includes(x.id)).lastIndexOf(true);
+      if (!kept(c)) continue;
+      const i = top.map(x => !kept(x)).lastIndexOf(true);
       if (i >= 0) top[i] = c;
     }
     return top.sort((a, b) => b.score - a.score);
@@ -693,6 +997,11 @@ G.Tactics = (() => {
           for (const p of pool) for (const ty of p.types) tw[ty] = (tw[ty] || 0) + p.w / W;
           const likely = Object.entries(tw).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join(', ');
           // (Como mucho 16 números y textos de 80: lo que el servidor deja pasar a Jev, mcp/src/jev-http.js LIMITS.)
+          // Lo que te quita cada golpe del legendario (contacto 36 + t/20, rift.js:143-149), con su tipo
+          // más probable contra los tuyos, tu defensa y el −25 % con cuerpo a cuerpo (player.js hurt).
+          let tk = 0;
+          for (const p of pool) tk += G.Types.mult(p.types[0], pl.mon.types) * p.w / W;
+          const legHit = Math.max(1, Math.round(taken(pl, 36 + t / 20, null) * tk));
           const others = per.slice(1).map(x => `slot ${x.s.index + 1}: ${Math.round(x.dps)} dps x${r1(x.k)}`).join('; ');
           out.push({
             id: 'rift', kind: 'goto', goal: [gx, gy], within: 18, commit: true, slot: best.s.index,
@@ -700,10 +1009,10 @@ G.Tactics = (() => {
             score: 0.55 + (ttk < 60 ? 0.5 : ttk < 100 ? 0.25 : -0.15) + (hp >= 0.6 ? 0.05 : hp < 0.35 ? -0.3 : -0.1) - (near200 >= 3 ? 0.2 : 0) - Math.min(0.2, travel / 60),
             numbers: clip({
               est_seconds_to_kill: Math.round(ttk), arena_time_limit_s: 120, rift_seconds_left: Math.round(rf.ttl), walk_seconds: r1(travel),
-              distance_px: Math.round(d), hp_percent: Math.round(hp * 100),
-              slot: best.s.index + 1, dps_vs_legend: Math.round(best.dps), type_mult_vs_legends: r1(best.k),
+              slot: best.s.index + 1, dps_vs_legend: Math.round(best.dps),
               ...(fixed ? { slot_fixed: fixed } : {}),
-              legend_hp: legHp, legend_contact_damage: Math.round(36 + t / 20), legend_likely_types: likely,
+              legend_hp: legHp, legend_hit_damage_to_you: legHit, legend_hits_to_ko_you: Math.ceil(pl.hp / legHit),
+              legend_likely_types: likely,
               win_reward: 'bond (fuse 2 moves), 3 tickets, 50% x10 ticket, held item, 130 coins, XP',
               lose_or_timeout: 'no reward; revived at 30% HP if KO; run goes on; map enemies wait',
               ...(others ? { other_slots: others } : {})
@@ -860,7 +1169,129 @@ G.Tactics = (() => {
     }
   }
 
+  /**
+   * Objetivos raros que hay que decidir si merecen la pena: el duende del tesoro, un shiny, los dorados
+   * de la hora dorada y el Pokémon perdido. Sólo se proponen si se puede (llegar a tiempo, tumbarlo...).
+   */
+  function specialTactics(pl, F, out, { ranked }) {
+    if (G.Rift.inArena || !ranked.length) return;
+    const spd = Math.max(30, drySpd(pl));
+    const bestSlot = e => ranked.map(s => ({ s, dps: slotDpsVs(pl, s, e) })).sort((a, b) => b.dps - a.dps)[0];
+    const hitTo = e => Math.round(taken(pl, e.dmg, e.atkType));
+
+    // Duende del tesoro (events.js:104-125): 92 px/s, huye en zigzag (a todo correr si estás a <300 px,
+    // si no al 35 %; el zigzag de ±0,7 rad deja ~88 % de avance, enemy.js:283-296) y se va a los 15 s
+    // (enemy.js:920). No hace daño (combat.js:664). Botín: Meowth 20 monedas de 5; Gholdengo 6 de 5 y
+    // un ticket ×10 (enemy.js:181-186). El apuntado va al enemigo más cercano (player.js:368-375).
+    for (const e of G.EnemyMgr.all()) {
+      if (e.dead || e.behavior !== 'thief' || !(e.life > 0)) continue;
+      const d = Math.hypot(e.x - pl.x, e.y - pl.y);
+      if (d > 1000) continue;
+      const b = bestSlot(e);
+      if (!b || b.dps <= 0) continue;
+      const reach = Math.min(520, b.s.range) * 0.85;
+      const flee = e.spd * (1 - (e.slow || 0)) * G.Weather.speedFor(e.types) * 0.88;
+      // Tiempo hasta tenerlo a tiro: lejos (>300 px) apenas se mueve; cerca huye a todo correr.
+      let catchS = 0, ok = true;
+      if (d > reach) {
+        const far = Math.max(0, d - Math.max(300, reach)), near = Math.max(0, Math.min(d, 300) - reach);
+        if (far) catchS += far / Math.max(1, spd - flee * 0.35);
+        if (near) { if (spd - flee <= 5) ok = false; else catchS += near / (spd - flee); }
+      }
+      const ttk = e.hp / b.dps;
+      const closer = F.enemies.filter(x => x.d < d).length;
+      // Con enemigos más cerca que él, el apuntado va a ellos y el piloto los rodea: no se cuenta con cogerlo.
+      const can = ok && catchS + ttk <= e.life && closer <= 2;
+      if (!can) continue;
+      out.push({
+        id: 'thief', kind: 'fight', chase: true, slot: b.s.index, keep: Math.max(60, Math.min(140, reach * 0.5)), targetId: e.id,      // cerca: que sea el más cercano (el apuntado)
+        thief: { id: e.id, x: e.x, y: e.y, es: e.spd * G.Weather.speedFor(e.types) },
+        label: `Chase the treasure ${e.name} ${Math.round(d)} px away before it escapes (${Math.round(e.life)} s left)`,
+        score: 0.55 + (e.def.loot === 'ticket10' ? 0.25 : 0.1) - closer * 0.04,
+        numbers: {
+          loot: e.def.loot === 'ticket10' ? 'x10 gacha ticket + 30 coins' : '100 coins',
+          seconds_until_escape: r1(e.life), thief_hp: Math.round(e.hp), slot: b.s.index + 1, dps_vs_thief: Math.round(b.dps),
+          seconds_to_kill: r1(ttk), seconds_to_get_in_range: r1(catchS), can_catch_in_time: can,
+          thief_flee_speed: Math.round(flee), your_speed: Math.round(spd), distance_px: Math.round(d),
+          enemies_closer_than_thief: closer, thief_hurts_you: false
+        }
+      });
+      break;
+    }
+
+    // Shiny (spawner.js:73-87, enemy.js:83-89): vida ×2, experiencia ×5; al caer es tuyo para la colección
+    // (o +300 monedas si ya lo tenías, game.js:271-281); no se va nunca (enemy.js:927).
+    // (F.enemies ya sólo trae los de < NEAR px: es el mismo radio que el resto de tácticas.)
+    const sh = F.enemies.filter(x => x.e.shiny && !x.e.boss && x.d < NEAR).sort((a, b) => a.d - b.d)[0];
+    if (sh) {
+      const e = sh.e, b = bestSlot(e);
+      if (b && b.dps > 0) {
+        const isNew = !(G.DB.ownsShiny && G.DB.ownsShiny(e.dex));
+        out.push({
+          id: 'shiny', kind: 'fight', slot: b.s.index, keep: b.s.keep, targetId: e.id,
+          label: `Hunt the shiny ${nameOf(e)} ${Math.round(sh.d)} px away with slot ${b.s.index + 1}`,
+          score: 0.5 + (isNew ? 0.25 : 0.1) - (F.hpFrac < 0.35 ? 0.2 : 0),
+          numbers: {
+            reward: isNew ? 'shiny joins your collection (new) + XP x5' : '300 coins (already owned) + XP x5',
+            shiny_hp: Math.round(e.hp), xp: Math.round(e.xp), slot: b.s.index + 1, dps_vs_shiny: Math.round(b.dps),
+            seconds_to_kill: r1(e.hp / b.dps), its_hit_damage_to_you: hitTo(e), outruns_you: sh.th.fast,
+            distance_px: Math.round(sh.d), leaves_if_ignored: false
+          }
+        });
+      }
+    }
+
+    // Hora dorada (events.js:72-74, spawner.js:88, enemy.js:93-96, :179): 30 s; los dorados dan el doble de
+    // experiencia y el 35 % suelta 3 monedas.
+    const ev = G.Events.info;
+    if (ev && ev.id === 'gold') {
+      const gold = F.enemies.filter(x => x.e.golden && x.d < 420);
+      if (gold.length) {
+        const s = ranked[0], hpSum = gold.reduce((a, x) => a + x.e.hp, 0), xp = gold.reduce((a, x) => a + x.e.xp, 0);
+        const tg = gold.slice().sort((a, b) => a.d - b.d)[0];
+        out.push({
+          id: 'golden', kind: 'fight', slot: s.index, keep: s.keep, targetId: tg.e.id,
+          label: `Golden hour: kill the ${gold.length} golden enemies nearby with slot ${s.index + 1}`,
+          score: 0.5 + Math.min(0.3, gold.length * 0.05),
+          numbers: {
+            golden_within_420px: gold.length, their_xp: Math.round(xp), xp_bonus: 'x2 already counted', coins: '35% chance of 3 coins each',
+            event_seconds_left: Math.round(ev.left || 0), slot: s.index + 1, dps_vs_nearby: Math.round(s.dps),
+            est_seconds_to_kill_all: r1(hpSum / Math.max(1, s.dps)), nearest_distance_px: Math.round(tg.d)
+          }
+        });
+      }
+    }
+
+    // Pokémon perdido (events.js:130-230): tocarlo (a < tu radio + el suyo + 18 px), te sigue y hay que
+    // llevarlo a < 56 px de la marca; los enemigos que lo tocan le quitan min(30, Σ 4 + 0,12·daño) cada
+    // 0,5 s (100 de vida); se va si cae o a los 120 s. Premio: cura el 50 % de tu vida, 12 monedas de 5,
+    // un ticket y 1 de cada 5 veces se une a tu colección (si ya lo tienes, +150 monedas, game.js:261-266).
+    const L = G.Events.lost;
+    if (L) {
+      const waiting = L.state === 'wait';
+      const goal = waiting ? [L.x, L.y] : [L.tx, L.ty];
+      const d = Math.hypot(goal[0] - pl.x, goal[1] - pl.y);
+      const escort = Math.hypot(L.tx - L.x, L.ty - L.y);
+      const need = walkTime(pl, goal[0], goal[1]) + (waiting ? escort * 1.15 / spd : 0);
+      if (need < L.left) {
+        const foes = F.enemies.filter(x => !x.th.keeper && Math.hypot(x.e.x - L.x, x.e.y - L.y) < 150).length;
+        out.push({
+          id: 'lost', kind: 'goto', goal, within: waiting ? Math.max(8, pl.r + L.r + 18 - 6) : 6,          // te sigue a ~tu radio + el suyo + 14 px: tú, encima de la marca
+          label: waiting ? `Find the lost ${L.name} ${Math.round(d)} px away and escort it to the marker` : `Escort ${L.name} to the marker ${Math.round(d)} px away`,
+          score: 0.45 + (F.hpFrac < 0.6 ? 0.15 : 0) - foes * 0.05,
+          numbers: {
+            step: waiting ? 'reach the pet, then escort it' : 'escort to the marker', distance_px: Math.round(d),
+            escort_distance_px: Math.round(waiting ? escort : d), est_seconds_needed: r1(need), seconds_left: Math.round(L.left),
+            pet_hp: Math.round(L.hp), pet_max_hp: L.maxHp, enemies_within_150px_of_pet: foes,
+            reward: 'heal 50% of your HP, 60 coins, 1 ticket, 20%: the pet joins you',
+            fail: 'pet leaves if its HP hits 0 or time runs out; no other penalty'
+          }
+        });
+      }
+    }
+  }
+
   // (El resumen de reglas que lee Jev está en el servidor: mcp/src/jev-core.js GAME_RULES.)
 
-  return { facts, candidates, hitRange, engageDist, moveDps, threatOf, targetFor, drySpd };
+  return { facts, candidates, hitRange, engageDist, moveDps, threatOf, targetFor, drySpd, dangerOf, escapeCandidate, addDanger, simulate };
 })();

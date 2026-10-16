@@ -9,6 +9,9 @@
  *     página con las reglas del juego (js/agent/tactics.js: hueco, distancia, blanco, hueco del cerco,
  *     gemas, trampa...); Jev elige una y el piloto automático (autopilot.js) la ejecuta 3 s (exec 'tactic').
  *     Mientras Jev no contesta, el piloto sigue con la mejor según las reglas.
+ *     Si el peligro se dispara (G.Autopilot.dangerSpike: el reflejo salta, quedarse quieto pasa a costar
+ *     la mitad de la vida o llega una marea), se pregunta en el acto, sin esperar los 1,5 s; nunca dos
+ *     preguntas a la vez ni con menos de 0,5 s entre ellas (mcp/src/jev-http.js deja 4 por segundo).
  * TypeSafe no deja llamar desde el navegador (CORS): el servidor del juego (mcp/src/jev-http.js)
  * reenvía la petición. La clave sólo se guarda en este dispositivo (localStorage).
  * La partida cuenta como jugada por la IA (🤖), igual que con un agente.
@@ -18,7 +21,7 @@
 G.AgentJev = (() => {
   const A = G.Agent;
   const LS_KEY = 'ps.jev.key', LS_ON = 'ps.jev.on';
-  const REROLL_AT = 0.7, EVERY = 1500, TACTIC_MS = 3000, PICK_DELAY = 700, ERR_WAIT = 3000, TIMEOUT = 25000;
+  const REROLL_AT = 0.7, EVERY = 1500, MIN_GAP = 500, TACTIC_MS = 3000, PICK_DELAY = 700, ERR_WAIT = 3000, TIMEOUT = 25000;
   const KEY_OK = /^[\x21-\x7e]{1,1024}$/;    // como el servidor: sólo ASCII visible
   const ls = {
     get: k => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } },
@@ -29,7 +32,7 @@ G.AgentJev = (() => {
 
   let key = ls.get(LS_KEY).trim();
   let on = !!key && ls.get(LS_ON) === '1';
-  let busy = false, handledCid = 0, rerolledCid = 0, nextStrategy = 0, waitUntil = 0, netWarned = false, epoch = 0;
+  let busy = false, lastAsk = 0, lastSpike = 0, spikeAsks = 0, handledCid = 0, rerolledCid = 0, nextStrategy = 0, waitUntil = 0, netWarned = false, epoch = 0;
 
   /** ¿Hay además un agente MCP emparejado? (No para a Jev: sólo se avisa en Ajustes.) */
   const mcpPaired = () => { const l = A.Link.info(); return l.on && l.status === 'paired'; };
@@ -146,13 +149,22 @@ G.AgentJev = (() => {
       A.exec('autopilot', { mode: G.Autopilot.mode === 'off' ? 'kite' : G.Autopilot.mode });
       nextStrategy = Date.now() + EVERY;
     }
-    if (Date.now() >= nextStrategy) { nextStrategy = Date.now() + EVERY; run(updateTactic); }
+    if (Date.now() - lastAsk < MIN_GAP) return;
+    const spike = G.Autopilot.dangerSpike;
+    const urgent = spike !== lastSpike;
+    lastSpike = spike;
+    if (urgent || Date.now() >= nextStrategy) {
+      if (urgent) spikeAsks++;
+      lastAsk = Date.now(); nextStrategy = lastAsk + EVERY; run(updateTactic);
+    }
   }
   setInterval(tick, 250);
 
   return {
     enable, disable, setKey, info,
     get on() { return on; }, get key() { return key; },
+    /** Preguntas hechas en el acto porque el peligro se disparó. */
+    get spikeAsks() { return spikeAsks; },
     onChange: fn => listeners.push(fn)
   };
 })();
