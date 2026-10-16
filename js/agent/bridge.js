@@ -167,11 +167,90 @@ G.Agent = (() => {
           bosses: pl.bosses, coins: pl.coins, bonds: pl.bonds, rerolls: rerollsLeft(), slots: pl.slots.length, maxMoves: pl.maxMoves, active: pl.active
         }
       },
-      enemies: near(G.EnemyMgr.all(), 40, (dx, dy, dist, e) => ({ dx, dy, dist, hp: Math.round(e.hp), maxHp: Math.round(e.maxHp), boss: !!e.boss, name: e.name, types: e.types || [] })),
+      enemies: near(G.EnemyMgr.all(), 40, (dx, dy, dist, e) => ({ dx, dy, dist, hp: Math.round(e.hp), maxHp: Math.round(e.maxHp), boss: !!e.boss, flying: !!e.flying, name: e.name, types: e.types || [] })),
       pickups: near(G.Pickups.all(), 30, (dx, dy, dist, p) => ({ dx, dy, kind: p.kind })),
       autopilot: ap,
-      tactics: tactics(pl)
+      tactics: tactics(pl),
+      map: mapInfo(pl)
     };
+  }
+
+  // ---------------- mapa alrededor ----------------
+  // Lo que el agente no ve en enemies/pickups: terreno, objetos del escenario,
+  // avisos en el suelo, disparos enemigos, grieta y arena. dx/dy relativos al jugador.
+  const GRID_R = 12;                     // casillas a cada lado (casilla = 32 px)
+  const PROP_CH = { tree: 'T', rock: 'o', chest: 'o', bigchest: 'B', altar: 'A', spring: 'S', trap: 'x', grass: '"' };
+  const TRAP = ['poison', 'sticky', 'explosive'];
+  const r2 = v => Math.round(v * 100) / 100;
+
+  function mapInfo(pl) {
+    const W = G.World, TS = W.TS;
+    const ptx = Math.floor(pl.x / TS), pty = Math.floor(pl.y / TS);
+    const near = W.propsNear(pl.x, pl.y, 640);
+    // Rejilla: una fila por casilla de norte a sur, '@' = tú.
+    const at = new Map();
+    for (const p of near) at.set(p.tx + ',' + p.ty, p);
+    const grid = [];
+    for (let ty = pty - GRID_R; ty <= pty + GRID_R; ty++) {
+      let row = '';
+      for (let tx = ptx - GRID_R; tx <= ptx + GRID_R; tx++) {
+        if (tx === ptx && ty === pty) { row += '@'; continue; }
+        const k = W.kindAt(tx * TS + TS / 2, ty * TS + TS / 2), p = at.get(tx + ',' + ty);
+        row += k === 'wall' ? '#' : p ? PROP_CH[p.type] || '?' : k === 'liquid' ? '~' : '.';
+      }
+      grid.push(row);
+    }
+    // Objetos del escenario (sin la hierba), los más cercanos primero.
+    const props = [];
+    for (const p of near) {
+      if (p.type === 'grass') continue;
+      const dx = Math.round(p.x - pl.x), dy = Math.round(p.y - pl.y), dist = Math.round(Math.hypot(dx, dy));
+      if (dist > 640) continue;
+      const o = { type: p.type, dx, dy, dist, solid: p.solid, breakable: p.destructible };
+      if (p.destructible) o.hp = Math.round(p.hp);
+      if (p.type === 'trap') o.trap = TRAP[p.kind] || 'trap';
+      if (p.type === 'spring') o.charge = r2(p.charge);
+      if (p.type === 'altar') o.used = p.used;
+      if (p.type === 'bigchest') o.open = r1(p.open);
+      props.push(o);
+    }
+    props.sort((a, b) => a.dist - b.dist);
+    // Avisos en el suelo que aún no han golpeado.
+    const hazards = [];
+    for (const h of (G.Hazards ? G.Hazards.all : [])) {
+      if (h.hit) continue;
+      const dx = Math.round(h.x - pl.x), dy = Math.round(h.y - pl.y);
+      if (dx * dx + dy * dy > 700 * 700) continue;
+      const o = { kind: h.kind, dx, dy, in: r1(Math.max(0, h.delay - h.t)), inside: G.Hazards.inside(h, pl.x, pl.y, pl.r) };
+      if (h.kind === 'zone') o.r = Math.round(h.r);
+      else { o.angle = r2(h.angle); o.len = Math.round(h.len); o.w = Math.round(h.w); }
+      hazards.push(o);
+    }
+    hazards.sort((a, b) => a.in - b.in);
+    // Disparos enemigos cerca.
+    const shots = [];
+    for (const s of G.Projectiles.all()) {
+      if (s.friendly || s.dead) continue;
+      const dx = s.x - pl.x, dy = s.y - pl.y, d2 = dx * dx + dy * dy;
+      if (d2 < 500 * 500) shots.push([d2, { dx: Math.round(dx), dy: Math.round(dy), vx: Math.round(s.vx), vy: Math.round(s.vy), r: Math.round(s.r) }]);
+    }
+    shots.sort((a, b) => a[0] - b[0]);
+    const eff = W.liquidEffect(pl.mon.types) || {};
+    const out = {
+      biome: W.biomeName(),
+      liquid: { kind: W.liquidKind(), slow: r2(eff.slow || 1), hurts: !!eff.dmg, slide: !!eff.slide },
+      tile: TS,
+      grid,
+      props: props.slice(0, 30),
+      hazards,
+      shots: shots.slice(0, 20).map(x => x[1])
+    };
+    const rift = G.Rift.rift;
+    if (rift) out.rift = { dx: Math.round(rift.x - pl.x), dy: Math.round(rift.y - pl.y), ttl: Math.ceil(rift.ttl) };
+    const ar = W.arena;
+    if (ar) out.arena = { dx: Math.round((ar.tx + 0.5) * TS - pl.x), dy: Math.round((ar.ty + 0.5) * TS - pl.y), r: ar.r * TS, type: ar.type };
+    if (G.Events.current) out.event = G.Events.current;
+    return out;
   }
 
   /** Tácticas candidatas (js/agent/tactics.js): las del piloto si va encendido, si no se calculan. */

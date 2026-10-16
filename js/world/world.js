@@ -273,6 +273,19 @@ G.World = (() => {
     return out;
   }
 
+  /** Todos los objetos del escenario (sin romper) en un cuadrado de lado 2r (para el puente de agentes). */
+  function propsNear(x, y, r) {
+    const out = [];
+    const c0x = Math.floor((x - r) / CW), c1x = Math.floor((x + r) / CW);
+    const c0y = Math.floor((y - r) / CW), c1y = Math.floor((y + r) / CW);
+    for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) {
+      for (const p of chunkData(cx, cy).props) {
+        if (Math.abs(p.x - x) <= r && Math.abs(p.y - y) <= r) out.push(p);
+      }
+    }
+    return out;
+  }
+
   /** Roca o cofre más cercano (para apuntar cuando no hay enemigos). */
   function nearestBreakable(x, y, r) {
     let best = null, bd = r * r;
@@ -587,7 +600,7 @@ G.World = (() => {
 
   return {
     TS, CW, reset, setBiome, biomeName, liquidKind, liquidEffect, walkable,
-    kindAt, isWall, isLiquid, isFree, collide, projectileBlock, propsInCircle, nearestBreakable,
+    kindAt, isWall, isLiquid, isFree, collide, projectileBlock, propsInCircle, propsNear, nearestBreakable,
     damageProp, breakAt, specialsNear, update,
     breakProp(p) { if (!broken.has(p.tx + ',' + p.ty)) destroyProp(p); },
     /** Arena de la grieta: { tx, ty, r } (en tiles) o null. */
