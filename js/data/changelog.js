@@ -8,7 +8,9 @@
 G.CHANGELOG = [
   { d: '2026-10-16', title: ['Flechas al botín lejano', 'Arrows to far-off loot'], new: [
     ['Los objetos y los tickets que se quedan fuera de la pantalla tienen ahora una flechita en el borde con su icono y a cuántos metros están (los 4 más cercanos), para que no se te pierdan en el mapa.',
-     'Items and tickets left off-screen now get a small arrow at the edge with their icon and how many metres away they are (the 4 closest), so you don’t lose them on the map.']
+     'Items and tickets left off-screen now get a small arrow at the edge with their icon and how many metres away they are (the 4 closest), so you don’t lose them on the map.'],
+    ['Conexión con IA: el agente ya ve el mapa a su alrededor (paredes, agua o lava, árboles, rocas, cofres, altares, manantiales y trampas), los avisos de ataque en el suelo, los disparos enemigos, la grieta y qué enemigos vuelan por encima de los obstáculos.',
+     'AI connection: the agent now sees the map around it (walls, water or lava, trees, rocks, chests, altars, springs and traps), attack warnings on the floor, enemy shots, the rift and which enemies fly over obstacles.']
   ] },
   { d: '2026-10-15', title: ['Traducción al chino tradicional', 'Traditional Chinese translation'], new: [
     ['Conexión con IA: en Ajustes > IA puedes dejar que un agente de IA (Claude, Codex…) juegue contigo a través de MCP. Te da un código de 6 caracteres para emparejarlo; el agente puede elegir cartas y moverse con un piloto automático, y tú puedes seguir eligiendo cuando quieras.',
