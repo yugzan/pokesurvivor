@@ -71,7 +71,7 @@ G.Autopilot = (() => {
   /** El jugador o un agente ha elegido hueco a mano: no se toca durante un rato. */
   function holdSlot(ms = MANUAL_HOLD) { manualUntil = performance.now() + ms; }
 
-  function release() { over = null; picked = null; plan = null; mode = 'off'; custom = {}; weights = { ...PRESET.off }; G.Input.clearExternal(); }
+  function release() { over = null; picked = null; plan = null; reflex.on = false; mode = 'off'; custom = {}; weights = { ...PRESET.off }; G.Input.clearExternal(); }
 
   function kick() { if (!raf) raf = requestAnimationFrame(tick); }
 
@@ -104,14 +104,96 @@ G.Autopilot = (() => {
     else picked = null;
     if (!c) {
       const bias = MODE_BIAS[mode] || {};
-      const sc = x => x.score + (bias[x.boss ? 'boss' : x.id in bias ? x.id : x.kind] || 0) + (plan && plan.id === x.id ? 0.12 : 0);   // un poco de constancia
+      const sc = x => x.score + (bias[x.boss ? 'boss' : x.id in bias ? x.id : x.kind] || 0) + (plan && plan.id === x.id && !plan.reflex ? 0.12 : 0);   // un poco de constancia
       c = cands.slice().sort((a, b) => sc(b) - sc(a))[0] || null;
     }
+    c = reflexCheck(pl, now, c) || c;
     plan = c;
     if (c && Number.isInteger(c.slot)) chooseSlot(pl, c.slot, now, !!c.needSlot);
     let tg = null;
     if (c && c.targetId != null) tg = G.EnemyMgr.all().find(e => e.id === c.targetId && !e.dead) || null;
     routePlan(pl, c, tg);
+  }
+
+  // ---------------- reflejo: salir sin esperar a Jev ----------------
+  // Jev contesta cada 1,5 s y a veces se muere antes (vida 56 -> 0 en menos de 1 s). Con la simulación de
+  // tactics.js (addDanger: daño de los próximos 2-3 s siguiendo cada táctica):
+  //   entra sólo si la táctica elegida (la de Jev o, sin Jev, la mejor) te deja KO en 2 s, o llega una marea
+  //   (surge) y esa táctica te quita al menos el 75 % de la vida en 2 s. Umbral sin datos concluyentes: una
+  //   prueba (2×8 partidas sin Jev) dio mejor el 50 %, pero no se reprodujo; otra de 16+16 con las mismas semillas
+  //   dio mediana 119 s con 75 % y 100,5 s con 50 % (no significativo, desviación ~25 s). Se queda el 75 % porque
+  //   quita el control a Jev la mitad de veces (casi nunca con la vida llena); y además la salida más segura (safest)
+  //   es claramente mejor: ahorra al menos un 25 % de la vida en 2 s y no cuesta más en 3 s. Quedarse quieto
+  //   ya no cuenta para entrar (en 6 partidas eso disparaba el reflejo con la vida llena y una táctica segura).
+  //   Mientras dura, no se usa lo que elija Jev (se guarda). Sale cuando lleva al menos 1,2 s y durante 0,75 s
+  //   seguidos la táctica elegida cuesta < 80 % de la vida y no se cumple lo de la marea; luego 1 s sin volver
+  //   a entrar salvo que la táctica elegida te deje KO. Las órdenes `move`, el teclado/pantalla del jugador y el
+  //   hueco fijado a mano mandan igual que siempre (el reflejo sólo cambia la táctica y no cambia de hueco).
+  //   Cada partida nueva empieza con el reflejo apagado y la cuenta a cero.
+  const RX_MIN = 1200, RX_CALM = 750, RX_EXIT = 0.8, RX_COOL = 1000, RX_GAIN = 0.25, RX_SURGE = 0.75;
+  const reflex = { on: false, since: 0, calmSince: 0, exitAt: -1e9, count: 0, reason: '', id: null, log: [], pl: null };
+  let spikeN = 0, lastPlanHalf = false, lastSurge = false;
+
+  function reflexCheck(pl, now, c) {
+    if (reflex.pl !== pl) Object.assign(reflex, { on: false, since: 0, calmSince: 0, exitAt: -1e9, count: 0, reason: '', id: null, log: [], pl });
+    const D = facts && G.Tactics.dangerOf(pl, facts);
+    if (!D) return null;
+    const hp = Math.max(1, pl.hp);
+    if (c && !c.danger) G.Tactics.addDanger(pl, facts, c);
+    const plan2 = c && c.danger ? c.danger.dmg2 : D.stay.dmg2;
+    const surgeHit = D.surge && plan2 >= hp * RX_SURGE;
+    // Subidas bruscas de peligro: Jev pregunta en el acto (jev.js).
+    const half = plan2 >= hp * 0.5;
+    if ((half && !lastPlanHalf) || (D.surge && !lastSurge)) spikeN++;
+    lastPlanHalf = half; lastSurge = D.surge;
+    if (!reflex.on) {
+      const lethal = plan2 >= hp;
+      if (!(lethal || surgeHit)) return null;
+      // Recién devuelto el mando a Jev, 1 s sin volver a entrar salvo que su táctica misma te deje KO.
+      if (now - reflex.exitAt < RX_COOL && !lethal) return null;
+      const esc = safest(pl, c);
+      if (!esc || (c && esc.id === c.id)) return null;
+      if (esc.danger.dmg2 > plan2 - hp * RX_GAIN || (c && c.danger && esc.danger.dmg > c.danger.dmg)) return null;
+      reflex.on = true; reflex.since = now; reflex.calmSince = 0; reflex.count++;
+      reflex.reason = (lethal ? `KO in 2 s (plan ${c ? c.id : '-'} ${plan2}, HP ${Math.round(pl.hp)})`
+        : `surge (${D.n150} within 150 px, ${D.d150_1 >= 0 ? '+' : ''}${D.d150_1} in 1 s; ${D.n300} within 300 px, ${D.d300_2 >= 0 ? '+' : ''}${D.d300_2} in 2 s; plan ${c ? c.id : '-'} ${plan2}, HP ${Math.round(pl.hp)})`) +
+        ` -> ${esc.id} (${esc.danger.dmg2} in 2 s)`;
+      reflex.log.push({ t: D.t, on: true, reason: reflex.reason, plan: c ? c.id : null, hp: Math.round(pl.hp), maxHp: Math.round(pl.maxHp) });
+      if (reflex.log.length > 50) reflex.log.shift();
+      spikeN++;
+      reflex.id = esc.id;
+      return { ...esc, slot: undefined, reflex: true };
+    }
+    // Calma: la táctica elegida ya no te deja KO (cuesta < 80 % de la vida) y no hay marea que la haga peligrosa.
+    const calm = plan2 < hp * RX_EXIT && !surgeHit;
+    if (!calm) reflex.calmSince = 0;
+    else if (!reflex.calmSince) reflex.calmSince = now;
+    if (calm && now - reflex.since >= RX_MIN && now - reflex.calmSince >= RX_CALM) {
+      reflex.on = false; reflex.exitAt = now;
+      reflex.log.push({ t: D.t, on: false, plan: c ? c.id : null });
+      if (reflex.log.length > 50) reflex.log.shift();
+      return null;                                                          // vuelve lo que elija Jev
+    }
+    // Se sigue con la misma salida mientras otra no ahorre al menos el 15 % de la vida (que no cambie a cada paso).
+    let esc = safest(pl, null);
+    const cur = cands.find(x => x.id === reflex.id);
+    if (cur && cur.danger && esc.id !== cur.id && esc.danger.dmg > cur.danger.dmg - hp * 0.15) esc = cur;
+    reflex.id = esc.id;
+    return { ...esc, slot: undefined, reflex: true };
+  }
+
+  /**
+   * La salida más segura: salir por el hueco (aunque no esté entre las candidatas) o la candidata de
+   * movimiento que menos daño te hace en 3 s (vuelta grande, curarse, cubrirse, la grieta...); a igualdad,
+   * salir por el hueco. No cuentan las peleas (quedarse a pelear es lo que se quiere evitar).
+   * (En las pruebas del 16-10-2026 salir por el hueco a ciegas costó 83 cuando la vuelta grande costaba 38.)
+   */
+  function safest(pl, c) {
+    let esc = cands.find(x => x.id === 'evade');
+    if (!esc) { esc = G.Tactics.escapeCandidate(pl, facts); G.Tactics.addDanger(pl, facts, esc); }
+    let best = esc;
+    for (const x of cands) if (x.kind !== 'fight' && x.danger && x.danger.dmg < best.danger.dmg) best = x;
+    return best;
   }
 
   function chooseSlot(pl, want, now, force = false) {
@@ -203,7 +285,8 @@ G.Autopilot = (() => {
     if (melee && target) keep = ready ? Math.max(20, (m.radius || 40) * 0.6) : (m.radius || 40) + 55;   // golpear y apartarse
     // (Salir del cerco: el rumbo lo da sobre todo la simulación y la horda por cada lado; el hueco sólo orienta.)
     // (c.commit: la grieta saca de allí a todos los enemigos al entrar, así que se va a por ella aunque estén cerca.)
-    const goalW = !c ? 0 : c.kind === 'evade' ? 0.35 : c.kind === 'fight' ? (melee ? 1.4 : 1.0) : c.kind === 'goto' ? (c.commit ? 3.5 : 1.4) : 1.1;
+    // (c.chase: el duende del tesoro huye y se va a los 15 s: acercarse pesa más que guardar las distancias.)
+    const goalW = !c ? 0 : c.kind === 'evade' ? 0.35 : c.chase ? 2.2 : c.kind === 'fight' ? (melee ? 1.4 : 1.0) : c.kind === 'goto' ? (c.commit ? 3.5 : 1.4) : 1.1;
 
     // El camino (routePlan) manda salvo al golpear cuerpo a cuerpo y al perseguir al corredor.
     // Cerca de un objetivo del mapa (c.within: grieta, altar, cofre, roca, botín, cobertura) se va
@@ -550,6 +633,14 @@ G.Autopilot = (() => {
     /** El hueco lo ha fijado el jugador o un agente: no se cambia hasta que pase (holdSlot). */
     get slotLocked() { return performance.now() < manualUntil; },
     get circleGem() { return circleGem; },
-    get picked() { return picked && performance.now() < picked.until ? { ...picked } : null; }
+    get picked() { return picked && performance.now() < picked.until ? { ...picked } : null; },
+    /** Reflejo (salir sin esperar a Jev): activo, veces, motivo y registro. */
+    get reflex() {
+      // Partida nueva y aún sin planificar: ya no es la de antes (se pone a cero en el primer replan).
+      if (reflex.pl && G.Game.player && G.Game.player !== reflex.pl && G.Game.state !== 'over') return { on: false, count: 0, reason: '', log: [] };
+      return { on: reflex.on, count: reflex.count, reason: reflex.reason, log: reflex.log.slice() };
+    },
+    /** Sube cada vez que el peligro se dispara (jev.js pregunta en el acto). */
+    get dangerSpike() { return spikeN; }
   };
 })();

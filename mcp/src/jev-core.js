@@ -63,11 +63,28 @@ export function summarizeState(state, choice) {
     xp_pickups_nearby: pickups.length,
     autopilot_mode: s.autopilot?.mode ?? null,
     ...(typeof s.tactics?.plan === 'string' ? { current_tactic: s.tactics.plan } : {}),
+    ...dangerOf(s.tactics),
   };
   if (choice) {
     out.choice_screen = { kind: choice.kind, ...(choice.mode ? { mode: choice.mode } : {}), ...(choice.step ? { step: choice.step } : {}), rerolls_left: choice.rerolls ?? 0 };
   }
   return out;
+}
+
+// Danger overview from the tactic candidates' shared numbers (est_damage_next_3s, survives_next_3s,
+// danger_now, computed on the page by js/agent/tactics.js): which options keep the player alive.
+export function dangerOf(t) {
+  const list = Array.isArray(t?.candidates) ? t.candidates.filter((c) => c && typeof c.id === 'string' && c.numbers && typeof c.numbers.est_damage_next_3s === 'number') : [];
+  if (!list.length) return {};
+  const safest = list.reduce((a, c) => (c.numbers.est_damage_next_3s < a.numbers.est_damage_next_3s ? c : a));
+  const now = list.find((c) => typeof c.numbers.danger_now === 'string');
+  return {
+    danger: {
+      ...(now ? { now: now.numbers.danger_now } : {}),
+      tactics_that_survive_next_3s: list.filter((c) => c.numbers.survives_next_3s === true).map((c) => c.id),
+      lowest_damage_tactic: safest.id,
+    },
+  };
 }
 
 // Move slots as the page reports them (player.slots); only well-formed ones.
@@ -206,6 +223,9 @@ export const GAME_RULES = [
   'Melee/aura/orbit moves need enemies close; projectiles/beams work at range. Contact damage is 25% lower with a melee move active.',
   'Traps hit every enemy within 74 px when a ground enemy steps on them (explosive is strongest); they also hurt the player within 52 px.',
   'Healing springs restore 14% max HP per second while standing on them. Killing enemies drops XP gems; level-ups give new moves.',
+  'After any hit the player is invulnerable for 0.45 s, so contacts and shots land at most once per 0.45 s; floor warnings (circles, beams, bomber fuses) ignore that and stack.',
+  'Every 38-56 s a tide (surge) of enemies arrives from one side; enemies left far behind reappear ahead. A crowd can take all HP in under 1 s.',
+  'Rare targets: a treasure thief (no damage, flees, escapes after 15 s) drops coins or a x10 ticket; a shiny (2x HP, 5x XP) joins the collection when killed and never leaves; during golden hour golden enemies give 2x XP; a lost pokemon must be escorted to its marker (heals 50% HP).',
 ].join(' ');
 
 export const TACTIC_ID_RE = /^[a-z][a-z0-9_]{0,23}$/;
@@ -231,9 +251,14 @@ export function tacticQuestions(state) {
     tactic: {
       type: 'choice',
       instructions: `Game rules: ${GAME_RULES} The autopilot moves the character and executes the chosen tactic frame by frame ` +
-        '(it always dodges shots and floor warnings by itself). Which tactic gives the best chance to survive while killing enemies ' +
-        'and gaining XP right now, given `state` and each option\'s computed numbers? Prefer killing enemies that outrun the player, ' +
-        'breaking out before being surrounded, healing when HP is low, and the slot with the highest damage against the enemies around. ' +
+        '(it always dodges shots and floor warnings by itself, and it breaks out on its own when staying would be lethal within 2 s). ' +
+        'Each option lists est_damage_next_3s and survives_next_3s (simulated from the real damage rules along that option\'s path) and danger_now (HP, damage if standing still, crowd size and its change). ' +
+        'Decide in this order: 1) never pick an option with survives_next_3s=false while another has true; ' +
+        '2) if HP is below 35% or danger_now says KO, pick heal, evade or the option with the lowest est_damage_next_3s; ' +
+        '3) among safe options (est_damage_next_3s below half of HP), prefer killing enemies that outrun the player, a fight whose group_seconds_to_clear is short and est_damage_while_clearing is well below HP, ' +
+        'breaking out before being surrounded, and the slot with the highest damage against the enemies around; ' +
+        '4) otherwise collect XP. Rare targets (thief, shiny, golden, lost, rift) are worth it only when their own numbers say they fit the time limit ' +
+        '(can_catch_in_time, seconds_to_kill vs seconds left, est_seconds_to_kill vs arena_time_limit_s and legend_hits_to_ko_you) and est_damage_next_3s stays below half of HP. ' +
         'Map tactics (rift, altar, bigchest, break, loot, cover) trade time and exposure for power or rewards: take them when their numbers say the danger is low ' +
         '(a lost rift fight only costs time; cover only helps against shooters and not against flying ones for long).',
       criteria,

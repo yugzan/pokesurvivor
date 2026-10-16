@@ -549,3 +549,49 @@ describe('map tactics through sanitizeTactics', () => {
     assert.equal(shapes.break_switch.numbers.switches_slot, true);
   });
 });
+
+// Danger numbers (est_damage_next_3s, survives_next_3s, danger_now) on every candidate, the group fight and the
+// rare targets (thief, shiny, golden, lost, rift go/no-go numbers): captured from the game page, they pass the
+// server's limits untouched, reach the question and feed the state's danger overview.
+import { summarizeState, dangerOf } from '../src/jev-core.js';
+import { sanitizeState } from '../src/jev-http.js';
+describe('danger numbers and rare targets', () => {
+  const shapes = JSON.parse(readFileSync(new URL('./fixtures/map-tactics.json', import.meta.url), 'utf8'));
+  const DANGER = ['est_damage_next_3s', 'survives_next_3s', 'danger_now'];
+  test('every candidate carries the shared danger numbers and nothing is dropped or cut', () => {
+    for (const id of ['fight', 'evade', 'circle_kite', 'collect', 'heal', 'thief', 'shiny', 'golden', 'lost', 'lost_follow', 'rift_danger']) assert.ok(shapes[id], `fixture has ${id}`);
+    for (const [name, c] of Object.entries(shapes)) {
+      for (const k of DANGER) assert.ok(k in c.numbers, `${name}.${k}`);
+      assert.equal(typeof c.numbers.est_damage_next_3s, 'number');
+      assert.equal(typeof c.numbers.survives_next_3s, 'boolean');
+      assert.ok(c.numbers.danger_now.length <= 80, `${name}: danger_now within 80 chars`);
+      const out = sanitizeTactics({ candidates: [c] }).candidates[0];
+      assert.deepEqual(out.numbers, c.numbers, `${name}: nothing dropped or cut`);
+    }
+  });
+  test('fight describes the group; rare targets have their go/no-go numbers', () => {
+    const f = shapes.fight.numbers;
+    for (const k of ['group_within_250px', 'group_seconds_to_clear', 'est_damage_while_clearing', 'dps_vs_nearby']) assert.ok(k in f, `fight.${k}`);
+    for (const k of ['seconds_until_escape', 'seconds_to_kill', 'seconds_to_get_in_range', 'can_catch_in_time', 'thief_flee_speed', 'your_speed', 'loot']) assert.ok(k in shapes.thief.numbers, `thief.${k}`);
+    for (const k of ['reward', 'shiny_hp', 'seconds_to_kill', 'its_hit_damage_to_you', 'leaves_if_ignored']) assert.ok(k in shapes.shiny.numbers, `shiny.${k}`);
+    for (const k of ['golden_within_420px', 'their_xp', 'event_seconds_left', 'est_seconds_to_kill_all']) assert.ok(k in shapes.golden.numbers, `golden.${k}`);
+    for (const k of ['seconds_left', 'est_seconds_needed', 'pet_hp', 'reward', 'fail']) assert.ok(k in shapes.lost.numbers, `lost.${k}`);
+    for (const k of ['legend_hit_damage_to_you', 'legend_hits_to_ko_you', 'est_seconds_to_kill', 'arena_time_limit_s']) assert.ok(k in shapes.rift_danger.numbers, `rift.${k}`);
+  });
+  test('the question has explicit thresholds and the state a danger overview', () => {
+    const cands = ['fight', 'evade', 'thief', 'heal'].map((k) => ({ ...shapes[k], id: shapes[k].id }));
+    const state = { tactics: { candidates: cands } };
+    const q = tacticQuestions(state).tactic;
+    assert.match(q.instructions, /never pick an option with survives_next_3s=false while another has true/);
+    assert.match(q.instructions, /HP is below 35%/);
+    assert.match(q.instructions, /invulnerable for 0\.45 s/);
+    assert.match(q.criteria[shapes.fight.id], /est_damage_next_3s=\d+, survives_next_3s=(true|false), danger_now=HP /);
+    const clean = sanitizeState(state);
+    const sum = summarizeState(clean, null);
+    const safest = cands.reduce((a, c) => (c.numbers.est_damage_next_3s < a.numbers.est_damage_next_3s ? c : a));
+    assert.equal(sum.danger.lowest_damage_tactic, safest.id);
+    assert.deepEqual(sum.danger.tactics_that_survive_next_3s, cands.filter((c) => c.numbers.survives_next_3s).map((c) => c.id));
+    assert.equal(typeof sum.danger.now, 'string');
+    assert.deepEqual(dangerOf({ candidates: [{ id: 'roam', numbers: {} }] }), {}, 'no danger numbers -> no overview');
+  });
+});

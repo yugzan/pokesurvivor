@@ -350,6 +350,10 @@ G.Events = (() => {
     reset, update, bag, onNet, drawables, drawHud,
     get golden() { return !!cur && cur.id === 'gold'; },
     get current() { return cur ? cur.id : null; },
+    /** Para la IA (js/agent/tactics.js), sólo lectura: evento en curso, tipo de la horda y segundos que quedan. */
+    get info() { return cur ? { id: cur.id, type: cur.type || null, left: cur.dur === Infinity ? null : Math.max(0, cur.dur - cur.t) } : null; },
+    /** Para la IA, sólo lectura: el Pokémon perdido, la marca, su vida y el tiempo que le queda. */
+    get lost() { return lost && { x: lost.x, y: lost.y, tx: lost.tx, ty: lost.ty, r: lost.r, state: lost.state, hp: lost.hp, maxHp: lost.maxHp, name: lost.name, left: Math.max(0, LOST_TIME - lost.t) }; },
     /** Para pruebas. */
     debugStart(id) { start(id, G.Game.st.time, G.Game.everyone()); },
     debugThief() { spawnThief(G.Game.everyone(), G.Game.st.time); },
