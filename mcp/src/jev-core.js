@@ -233,7 +233,9 @@ export function tacticQuestions(state) {
       instructions: `Game rules: ${GAME_RULES} The autopilot moves the character and executes the chosen tactic frame by frame ` +
         '(it always dodges shots and floor warnings by itself). Which tactic gives the best chance to survive while killing enemies ' +
         'and gaining XP right now, given `state` and each option\'s computed numbers? Prefer killing enemies that outrun the player, ' +
-        'breaking out before being surrounded, healing when HP is low, and the slot with the highest damage against the enemies around.',
+        'breaking out before being surrounded, healing when HP is low, and the slot with the highest damage against the enemies around. ' +
+        'Map tactics (rift, altar, bigchest, break, loot, cover) trade time and exposure for power or rewards: take them when their numbers say the danger is low ' +
+        '(a lost rift fight only costs time; cover only helps against shooters and not against flying ones for long).',
       criteria,
     },
   };

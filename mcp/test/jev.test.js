@@ -514,3 +514,38 @@ describe('jev live API', { skip: process.env.JEV_LIVE_KEY ? false : 'set JEV_LIV
     } finally { await app.close(); }
   });
 });
+
+// Map tactics (js/agent/tactics.js): their ids are valid and Jev gets the trade-off hint.
+import { TACTIC_ID_RE, tacticQuestions } from '../src/jev-core.js';
+describe('map tactics', () => {
+  test('rift/altar/bigchest/break/loot/cover ids pass and appear in the question', () => {
+    const ids = ['rift', 'altar', 'bigchest', 'break', 'loot', 'cover'];
+    for (const id of ids) assert.match(id, TACTIC_ID_RE);
+    const state = { tactics: { candidates: ids.map((id) => ({ id, kind: 'goto', label: `Do ${id}`, numbers: { distance_px: 100 } })) } };
+    const q = tacticQuestions(state).tactic;
+    assert.deepEqual(Object.keys(q.criteria), ids);
+    assert.match(q.criteria.rift, /Do rift \| distance_px=100/);
+    assert.match(q.instructions, /Map tactics \(rift, altar, bigchest, break, loot, cover\)/);
+  });
+});
+
+// The page's real numbers for the map tactics (captured from the game, 5 attack slots, choice band,
+// slot switch: test/fixtures/map-tactics.json) survive the server's limits untouched (16 numbers, 80 chars).
+import { readFileSync } from 'node:fs';
+import { sanitizeTactics, LIMITS } from '../src/jev-http.js';
+describe('map tactics through sanitizeTactics', () => {
+  const shapes = JSON.parse(readFileSync(new URL('./fixtures/map-tactics.json', import.meta.url), 'utf8'));
+  test('every map tactic keeps all its numbers', () => {
+    const ids = new Set(Object.values(shapes).map((c) => c.id));
+    for (const id of ['rift', 'altar', 'bigchest', 'break', 'loot', 'cover']) assert.ok(ids.has(id), `fixture has ${id}`);
+    for (const [name, c] of Object.entries(shapes)) {
+      assert.ok(Object.keys(c.numbers).length <= LIMITS.numbers, `${name}: at most ${LIMITS.numbers} numbers`);
+      const out = sanitizeTactics({ candidates: [c] }).candidates[0];
+      assert.deepEqual(out.numbers, c.numbers, `${name}: nothing dropped or cut`);
+    }
+    const rift = shapes.rift.numbers;
+    for (const k of ['est_seconds_to_kill', 'arena_time_limit_s', 'win_reward', 'lose_or_timeout', 'slot', 'dps_vs_legend']) assert.ok(k in rift, `rift.${k}`);
+    assert.equal(shapes.rift_choiceband.numbers.slot_fixed, 'choice band');
+    assert.equal(shapes.break_switch.numbers.switches_slot, true);
+  });
+});
