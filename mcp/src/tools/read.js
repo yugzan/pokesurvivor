@@ -9,9 +9,10 @@ export function register(server, ctx) {
     description:
       'Latest snapshot of the paired game (refreshed by the page about every 250 ms while playing), or null if the page has not sent one yet. ' +
       'Fields: phase ("menu" | "playing" | "levelup" | "choice" | "paused" | "held" | "over"), time (seconds survived), ai (0/1/2), ' +
-      'player {x, y, hp, maxHp, level, xp, xpNext, kills, moves[{id,name,lv}], item, stats}, ' +
-      'enemies (up to 40 nearest, sorted by distance; dx/dy are relative to the player, +x right, +y down; boss=true for bosses), ' +
-      'pickups (nearest, relative dx/dy, kind such as XP gems), autopilot {mode, weights}. ' +
+      'player {x, y, hp, maxHp, level, xp, xpNext, kills, moves[{id,name,lv}], active (index of the active slot), slots[{index, active, moves[{id,name,lv,type,kind,range?,radius?,cd}]}], locked (Choice Band: cannot switch), item, stats}, ' +
+      'enemies (up to 40 nearest, sorted by distance; dx/dy are relative to the player, +x right, +y down; boss=true for bosses; types = Pokémon types), ' +
+      'pickups (nearest, relative dx/dy, kind such as XP gems), autopilot {mode, weights}, ' +
+      'tactics {plan (id the autopilot follows now), candidates[{id, kind, label, score, numbers}]} (3-6 tactics computed from the real game rules; see suggest_tactic). ' +
       'The game runs in real time, so the snapshot is already slightly old when you read it. phase "over" means the run ended.',
     annotations: ro,
   }, guard(async () => {

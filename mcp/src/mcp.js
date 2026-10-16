@@ -16,10 +16,11 @@ export const INSTRUCTIONS =
   'killing them drops XP; on each level-up the game PAUSES and shows cards (new move, upgrade, evolution, stat) to pick from. ' +
   'You play alongside a human who has the game open. Workflow: 1) ask the player for the 6-character code and call pair(code); ' +
   '2) call set_autopilot (e.g. "kite") so the character keeps moving; 3) loop: wait_for_choice -> pick the best card with choose(index) ' +
-  '(use reroll if no card helps and rerolls remain); between choices, check get_state and adjust the autopilot mode. ' +
+  '(use reroll if no card helps and rerolls remain); between choices, check get_state and adjust the autopilot mode and the active move (set_active_move). ' +
   'move(dx, dy, ms) is only a short manual override. release() hands control back to the player. Card texts are in Spanish. ' +
   'If the user has a TypeSafe Jev key (X-Jev-Key header or jev_key argument), evaluate_choices / should_reroll / suggest_strategy give ' +
-  'Jev\'s probabilities for the cards and the movement mode, and auto_play lets Jev play by itself (auto_play_status shows its progress).';
+  'Jev\'s probabilities for the cards and the movement mode, suggest_tactic lets Jev pick one of the tactics the page computes ' +
+  '(slot, distance, target, gap, gems, trap...), and auto_play lets Jev play by itself (auto_play_status shows its progress).';
 
 const jsonRpcError = (res, status, code, message) =>
   sendJson(res, status, { jsonrpc: '2.0', error: { code, message }, id: null });

@@ -3,7 +3,7 @@
  *   - state():  el estado de la partida (jugador, enemigos y objetos cercanos...)
  *   - choice(): la elección abierta (cartas de nivel, objeto o vínculo), con `cid`
  *               que sube cada vez que aparece una elección nueva (o cambian las cartas)
- *   - exec(op, args): choose, reroll, move, autopilot, overlay, release
+ *   - exec(op, args): choose, reroll, move, autopilot, active (movimiento activo), tactic, overlay, release
  * Elegir pasa por el mismo camino que el clic del jugador (G.RunUI).
  * La conexión (sólo si el jugador activa "Conexión con IA" en Ajustes):
  *   POST /agent/session -> { sid, code }   EventSource /agent/stream?sid=   POST /agent/report
@@ -156,6 +156,10 @@ G.Agent = (() => {
         x: Math.round(pl.x), y: Math.round(pl.y), hp: Math.round(pl.hp), maxHp: Math.round(pl.maxHp),
         level: pl.level, xp: Math.round(pl.xp), xpNext: Math.round(pl.xpNext), kills: pl.kills,
         moves: pl.moves.map(m => ({ id: m.id, name: m.name, lv: m.lvl })),
+        // Huecos (teclas 1, 2...): sólo se lanza el del hueco activo; un vínculo junta varios en uno.
+        active: pl.active,
+        slots: pl.slots.map((g, i) => ({ index: i, active: i === pl.active, moves: g.map(slotMove) })),
+        locked: pl.hasItem('choiceband'),   // Cinta Elección: no se puede cambiar
         item: pl.item || null,
         stats: {
           spd: r1(pl.spd), atk: r1(pl.atk), cdMul: r1(pl.cdMul * 100) / 100, crit: r1(pl.critChance * 100) / 100,
@@ -163,10 +167,31 @@ G.Agent = (() => {
           bosses: pl.bosses, coins: pl.coins, bonds: pl.bonds, rerolls: rerollsLeft(), slots: pl.slots.length, maxMoves: pl.maxMoves, active: pl.active
         }
       },
-      enemies: near(G.EnemyMgr.all(), 40, (dx, dy, dist, e) => ({ dx, dy, dist, hp: Math.round(e.hp), maxHp: Math.round(e.maxHp), boss: !!e.boss, name: e.name })),
+      enemies: near(G.EnemyMgr.all(), 40, (dx, dy, dist, e) => ({ dx, dy, dist, hp: Math.round(e.hp), maxHp: Math.round(e.maxHp), boss: !!e.boss, name: e.name, types: e.types || [] })),
       pickups: near(G.Pickups.all(), 30, (dx, dy, dist, p) => ({ dx, dy, kind: p.kind })),
-      autopilot: ap
+      autopilot: ap,
+      tactics: tactics(pl)
     };
+  }
+
+  /** Tácticas candidatas (js/agent/tactics.js): las del piloto si va encendido, si no se calculan. */
+  function tactics(pl) {
+    if (pl.dead || G.Game.state !== 'playing') return { plan: null, candidates: [] };
+    let list = G.Autopilot.mode !== 'off' ? G.Autopilot.candidates : null;
+    if (!list || !list.length) { try { list = G.Tactics.candidates(pl); } catch (e) { list = []; } }
+    const plan = G.Autopilot.plan;
+    return {
+      plan: G.Autopilot.mode !== 'off' && plan ? plan.id : null,
+      candidates: list.map(c => ({ id: c.id, kind: c.kind, label: c.label, score: r1(c.score), numbers: c.numbers }))
+    };
+  }
+
+  /** Un movimiento de un hueco: tipo, forma de atacar (projectile, beam, melee...), alcance y recarga. */
+  function slotMove(m) {
+    const o = { id: m.id, name: m.name, lv: m.lvl, type: m.type, kind: m.kind, cd: r1(m.cd * 100) / 100 };
+    if (typeof m.range === 'number') o.range = Math.round(m.range);
+    if (typeof m.radius === 'number') o.radius = Math.round(m.radius);
+    return o;
   }
 
   // Empieza / acaba la partida (se mira el estado del juego).
@@ -224,6 +249,27 @@ G.Agent = (() => {
           if (a.mode !== 'off') markAI(2);
           G.Autopilot.set(a.mode, a.weights);
           return ok({ mode: G.Autopilot.mode, weights: G.Autopilot.weights });
+        }
+        case 'active': {                  // cambia el movimiento activo (como las teclas 1, 2...)
+          const pl = G.Game.player;
+          if (!pl || G.Game.state === 'ui' || G.Game.state === 'over') return fail('not in a run');
+          if (!int(a.slot) || !pl.slots[a.slot]) return fail('bad slot');
+          if (a.slot === pl.active) return ok({ active: pl.active });
+          if (pl.hasItem('choiceband') && pl.slots[pl.active]) return fail('choice band: the active move cannot be changed');
+          markAI(2);
+          pl.setActive(a.slot);
+          G.Autopilot.holdSlot();          // el piloto no lo vuelve a cambiar enseguida
+          return pl.active === a.slot ? ok({ active: pl.active }) : fail('could not change the active move');
+        }
+        case 'tactic': {                  // la IA elige una táctica (id de state.tactics.candidates)
+          if (G.Game.state !== 'playing' || !G.Game.player) return fail('not playing');
+          if (typeof a.id !== 'string' || !/^[a-z][a-z0-9_]{0,23}$/.test(a.id)) return fail('bad tactic id');
+          const ms = Math.max(500, Math.min(15000, Math.round(num(a.ms) ? a.ms : 4000)));
+          markAI(2);
+          if (G.Autopilot.mode === 'off') G.Autopilot.set('kite');
+          G.Autopilot.useTactic(a.id, ms, a.source === 'jev' ? 'jev' : 'agent');
+          const known = G.Autopilot.candidates.some(c => c.id === a.id);
+          return ok({ id: a.id, ms, known });
         }
         case 'overlay': {
           if (!choice || a.cid !== choice.cid) return fail('stale choice');
@@ -409,6 +455,8 @@ G.Agent = (() => {
     reroll: (c = choice && choice.cid) => exec('reroll', { cid: c }),
     move: (dx, dy, ms) => exec('move', { dx, dy, ms }),
     setAutopilot: (mode, weights) => exec('autopilot', { mode, weights }),
+    setActive: slot => exec('active', { slot }),
+    useTactic: (id, ms) => exec('tactic', { id, ms }),
     overlay: (probabilities, pick, c = choice && choice.cid) => exec('overlay', { cid: c, probabilities, pick, source: 'jev' }),
     release: () => exec('release', {}),
     exec,

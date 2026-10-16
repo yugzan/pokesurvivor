@@ -1,6 +1,7 @@
 // PokéSurvivor MCP relay.
 //   Game page  <-> /agent/session, /agent/stream (SSE), /agent/report   (protocol v1)
 //   AI agents  <-> /mcp  (remote MCP, Streamable HTTP)
+//   Game page  ->  /agent/jev  (Jev for the page itself, see jev-http.js)
 //   Health:        /agent/health, /mcp/health
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
@@ -9,6 +10,7 @@ import { GameStore, GameError } from './games.js';
 import { McpHub } from './mcp.js';
 import { clientIp, readBody, BodyTooLarge, sendJson, sendStatus, RateLimiter } from './http-util.js';
 import { log } from './log.js';
+import { handleJev } from './jev-http.js';
 
 export function createApp(overrides = {}, options = {}) {
   const config = loadConfig(overrides);
@@ -17,6 +19,8 @@ export function createApp(overrides = {}, options = {}) {
   const sessionLimiter = new RateLimiter(config.sessionPerMin, 60_000);
   const streamLimiter = new RateLimiter(config.streamPerMin, 60_000);
   const mcpLimiter = new RateLimiter(config.mcpPerSec, 1000);
+  const jevLimiter = new RateLimiter(config.jevPagePerSec, 1000);
+  const jevGlobalLimiter = new RateLimiter(config.jevPageGlobalPerMin, 60_000);
 
   const tooMany = (res) => sendJson(res, 429, { error: 'too many requests' }, { 'Retry-After': '1' });
 
@@ -72,6 +76,10 @@ export function createApp(overrides = {}, options = {}) {
       return sendStatus(res, 204);
     }
 
+    if (path === '/agent/jev') {
+      return handleJev(req, res, { config, limiter: jevLimiter, globalLimiter: jevGlobalLimiter, ip });
+    }
+
     return sendJson(res, 404, { error: 'not found' });
   }
 
@@ -92,6 +100,8 @@ export function createApp(overrides = {}, options = {}) {
     sessionLimiter.sweep(now);
     streamLimiter.sweep(now);
     mcpLimiter.sweep(now);
+    jevLimiter.sweep(now);
+    jevGlobalLimiter.sweep(now);
   }, config.sweepMs);
   sweeper.unref();
 

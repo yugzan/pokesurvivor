@@ -34,6 +34,8 @@ export function loadConfig(overrides = {}) {
     jevModel: process.env.JEV_MODEL || 'jev-1.13.0',
     jevTimeoutMs: num('JEV_TIMEOUT_MS', 8000),
     jevPerSec: num('JEV_PER_SEC', 2),                   // Jev calls per MCP session
+    jevPagePerSec: num('RL_JEV_PAGE_PER_SEC', 4),       // POST /agent/jev per IP (Jev played from the page)
+    jevPageGlobalPerMin: num('RL_JEV_PAGE_GLOBAL_PER_MIN', 600), // POST /agent/jev from all IPs together
     jevRetryMaxMs: num('JEV_RETRY_MAX_MS', 5000),       // cap on retry-after for 429/529
     ...overrides,
   };

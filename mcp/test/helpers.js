@@ -65,8 +65,8 @@ export class FakePage {
     for (const l of this.listeners) l(ev);
     if (event === 'cmd' && this.onCmd) {
       Promise.resolve(this.onCmd(ev.data)).then((res) => {
-        if (res) this.report({ results: [{ id: ev.data.id, ...res }] });
-      });
+        if (res) return this.report({ results: [{ id: ev.data.id, ...res }] });
+      }).catch(() => {});      // the test (and its server) may already be gone
     }
   }
 

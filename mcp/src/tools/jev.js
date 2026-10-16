@@ -5,94 +5,13 @@
 import { z } from 'zod';
 import { ok, fail, guard, ToolError } from './result.js';
 import { systemOne, makeThrottle, JevError, MISSING_KEY } from '../jev-client.js';
+import {
+  summarizeState, buildChoiceQuestions, strategyQuestions, parseChoiceAnswer, parseStrategyAnswer, cardsOf, canReroll, r2,
+  tacticQuestions, parseTacticAnswer, tacticsOf,
+} from '../jev-core.js';
 import { short } from '../log.js';
 
-export const STRATEGY_MODES = {
-  kite: 'Default. HP is healthy and enemies are around but not overwhelming: keep a safe distance while circling so the automatic attacks keep hitting them.',
-  retreat: 'Danger: HP is low (roughly below 35%) or many enemies are very close and the player is getting surrounded. Run away from the nearest threats.',
-  collect_xp: 'Calm: few or no enemies close to the player and XP pickups lie nearby. Go collect them to level up faster.',
-  hunt_boss: 'A boss is present and the player is healthy and strong enough to take it down: move toward the boss to kill it.',
-};
-
-const KIND_HINT = {
-  levelup: 'This is a level-up screen: each card adds a new move, upgrades or evolves a move the player has, or improves a stat.',
-  item: 'This is a held-item screen: keep the current item or swap it for the new one.',
-  bond: 'This is a bond screen: the chosen move will be cast together with others (a combo).',
-};
-
-const r2 = (n) => (typeof n === 'number' && Number.isFinite(n) ? Math.round(n * 100) / 100 : undefined);
-
-// Compact battle summary for Jev (English labels, Spanish names kept as-is).
-export function summarizeState(state, choice) {
-  const s = state && typeof state === 'object' ? state : {};
-  const p = s.player && typeof s.player === 'object' ? s.player : {};
-  const enemies = Array.isArray(s.enemies) ? s.enemies.filter((e) => e && typeof e === 'object') : [];
-  const dist = (e) => (typeof e.dist === 'number' ? e.dist : Math.hypot(e.dx || 0, e.dy || 0));
-  const within = (r) => enemies.filter((e) => dist(e) <= r).length;
-  const boss = enemies.find((e) => e.boss);
-  const pickups = Array.isArray(s.pickups) ? s.pickups : [];
-  const out = {
-    game: 'PokéSurvivor, a real-time survivor-like: the character attacks automatically, enemies swarm in waves, killing them drops XP gems; each level-up offers cards. Names and card texts are in Spanish.',
-    phase: s.phase ?? null,
-    time_survived_s: r2(s.time),
-    player: {
-      hp: p.hp, max_hp: p.maxHp,
-      hp_percent: typeof p.hp === 'number' && p.maxHp > 0 ? Math.round((p.hp / p.maxHp) * 100) : undefined,
-      level: p.level,
-      moves: Array.isArray(p.moves) ? p.moves.map((m) => `${m?.name ?? m?.id} (lv ${m?.lv ?? '?'})`) : undefined,
-      held_item: p.item ?? null,
-      stats: p.stats && typeof p.stats === 'object' ? p.stats : undefined,
-    },
-    enemies: {
-      visible_count: enemies.length,
-      within_150px: within(150),
-      within_300px: within(300),
-      nearest_distance_px: enemies.length ? Math.round(dist(enemies[0])) : null,
-      boss_present: !!boss,
-      ...(boss ? { boss: { name: boss.name, distance_px: Math.round(dist(boss)), hp: boss.hp, max_hp: boss.maxHp } } : {}),
-    },
-    xp_pickups_nearby: pickups.length,
-    autopilot_mode: s.autopilot?.mode ?? null,
-  };
-  if (choice) {
-    out.choice_screen = { kind: choice.kind, ...(choice.mode ? { mode: choice.mode } : {}), ...(choice.step ? { step: choice.step } : {}), rerolls_left: choice.rerolls ?? 0 };
-  }
-  return out;
-}
-
-export const cardText = (c) => {
-  const extra = [c.tag && `tag: ${c.tag}`, c.type && `type: ${c.type}`, c.key && `key: ${c.key}`].filter(Boolean).join(', ');
-  return `${c.title ?? ''} — ${c.desc ?? ''}${extra ? ` (${extra})` : ''}`;
-};
-
-const cardsOf = (choice) => (Array.isArray(choice?.cards) ? choice.cards.filter((c) => c && Number.isInteger(c.index)) : []);
-
-export function buildChoiceQuestions(choice, withReroll) {
-  const cards = cardsOf(choice);
-  const criteria = {};
-  for (const c of cards) criteria[String(c.index)] = cardText(c);
-  const questions = {
-    best_card: {
-      type: 'choice',
-      instructions: `${KIND_HINT[choice.kind] || 'The game is paused on a choice screen.'} Which card should the player pick to best improve this run's survival and damage output, given the player's current moves, HP and the threats described in \`state\`? Each option is a card number; its description is the card text (in Spanish).`,
-      criteria,
-    },
-  };
-  if (withReroll) {
-    questions.reroll = {
-      type: 'noul',
-      instructions: {
-        offered_cards: Object.values(criteria),
-        question: 'Are all of the `offered_cards` poor picks for this run, so the player should spend one of the limited rerolls to get a new set of cards instead of picking one?',
-      },
-      criteria: {
-        true: 'None of the cards is worth taking now; rerolling is better.',
-        false: 'At least one card is a reasonable pick; do not reroll.',
-      },
-    };
-  }
-  return questions;
-}
+export { STRATEGY_MODES, summarizeState, cardText, buildChoiceQuestions } from '../jev-core.js';
 
 export function register(server, ctx) {
   const throttle = makeThrottle(ctx.config.jevPerSec ?? 2);
@@ -116,17 +35,8 @@ export function register(server, ctx) {
     const cards = cardsOf(choice);
     if (!cards.length) throw new ToolError('the open choice screen has no cards to evaluate');
     const res = await ask(key, summarizeState(game.state, choice), buildChoiceQuestions(choice, withReroll));
-    const a = res.answers?.best_card;
-    if (!a || typeof a.probabilities !== 'object') throw new JevError('Jev returned no answer for the card question', 'bad_response');
-    const probabilities = {};
-    for (const c of cards) probabilities[String(c.index)] = r2(Number(a.probabilities[String(c.index)]) || 0);
-    let pick = Number(a.choice);
-    if (!Number.isInteger(pick) || !(String(pick) in probabilities)) {
-      pick = Number(Object.entries(probabilities).sort((x, y) => y[1] - x[1])[0][0]);
-    }
-    const out = { cid: choice.cid, probabilities, choice: pick, confidence: r2(a.confidence), model: res.model };
-    const rr = res.answers?.reroll;
-    if (withReroll && typeof rr?.noul === 'number') out.reroll_probability = r2(rr.noul);
+    const out = parseChoiceAnswer(res, choice, withReroll);
+    const { probabilities, choice: pick } = out;
     if (overlay) {
       try {
         const o = await ctx.sendCmd('overlay', { cid: choice.cid, probabilities, pick, source: 'jev' });
@@ -138,18 +48,7 @@ export function register(server, ctx) {
 
   async function strategy(key, game) {
     if (!game.state) throw new ToolError('no battle state yet (the page has not reported one); try again in a moment');
-    const res = await ask(key, summarizeState(game.state, null), {
-      mode: {
-        type: 'choice',
-        instructions: 'The character moves by an autopilot while attacks are automatic. Which autopilot mode best keeps the player alive and gaining power right now, given HP, nearby enemies, bosses and XP pickups in `state`?',
-        criteria: { ...STRATEGY_MODES },
-      },
-    });
-    const a = res.answers?.mode;
-    if (!a || !(a.choice in STRATEGY_MODES)) throw new JevError('Jev returned no usable strategy answer', 'bad_response');
-    const probabilities = {};
-    for (const m of Object.keys(STRATEGY_MODES)) probabilities[m] = r2(Number(a.probabilities?.[m]) || 0);
-    return { mode: a.choice, probabilities, confidence: r2(a.confidence), model: res.model };
+    return parseStrategyAnswer(await ask(key, summarizeState(game.state, null), strategyQuestions(game.state)));
   }
 
   const ro = { readOnlyHint: true, openWorldHint: true };
@@ -171,7 +70,7 @@ export function register(server, ctx) {
     const choice = game.choice;
     if (!choice) return fail('no choice screen is open right now; call wait_for_choice first');
     ctx.markSeen(choice.cid);
-    const withReroll = choice.kind === 'levelup' && (choice.rerolls ?? 0) > 0;
+    const withReroll = canReroll(choice);
     return ok(await evaluate(key, game, choice, { withReroll }));
   }));
 
@@ -188,7 +87,7 @@ export function register(server, ctx) {
     const game = ctx.requireGame();
     const choice = game.choice;
     if (!choice) return fail('no choice screen is open right now; call wait_for_choice first');
-    if (choice.kind !== 'levelup' || !((choice.rerolls ?? 0) > 0)) return fail('rerolling is not possible on this screen (only level-up screens with rerolls left)');
+    if (!canReroll(choice)) return fail('rerolling is not possible on this screen (only level-up screens with rerolls left)');
     if (!cardsOf(choice).length) return fail('the open choice screen has no cards to evaluate');
     const q = buildChoiceQuestions(choice, true);
     const res = await ask(key, summarizeState(game.state, choice), { reroll: q.reroll });
@@ -204,7 +103,9 @@ export function register(server, ctx) {
       'Ask Jev which autopilot mode fits the current battle (from the latest get_state snapshot): ' +
       '"kite" (default, healthy HP, keep distance while circling), "retreat" (low HP or getting surrounded), ' +
       '"collect_xp" (few enemies close, XP gems nearby), "hunt_boss" (a boss is present and the player is strong enough). ' +
-      'Returns {mode, probabilities: {mode: p}, confidence, model}. With apply=true it also switches the autopilot to that mode (like set_autopilot) and adds applied: true.' + KEY_NOTE,
+      'Returns {mode, probabilities: {mode: p}, confidence, model}. When the player has 2+ move slots (and no Choice Band), Jev also picks the slot ' +
+      'whose moves fit the enemies best (type matchups, range): slot, slot_probabilities {"<slot>": p}, slot_confidence. ' +
+      'With apply=true it also switches the autopilot to that mode (like set_autopilot) and the active move to that slot (like set_active_move), and adds applied: true.' + KEY_NOTE,
     inputSchema: {
       apply: z.boolean().optional().describe('true = also set the autopilot to the suggested mode. Default false (advice only).'),
       jev_key: jevKeyArg,
@@ -217,6 +118,42 @@ export function register(server, ctx) {
     if (apply) {
       const r = await ctx.sendCmd('autopilot', { mode: out.mode });
       if (!r.ok) return fail(`Jev suggested "${out.mode}" but setting the autopilot failed: ${r.error}`);
+      if (out.slot != null && out.slot !== game.state?.player?.active) {
+        const r2s = await ctx.sendCmd('active', { slot: out.slot });
+        if (!r2s.ok) out.slot_error = r2s.error;
+      }
+      out.applied = true;
+    } else {
+      ctx.sendCmd('mark', {}).catch(() => {});   // advice only -> AI-assisted (🧠)
+    }
+    return ok(out);
+  }));
+
+  server.registerTool('suggest_tactic', {
+    title: 'Ask Jev for a tactic',
+    description:
+      'Ask Jev to pick one of the tactics the game page computed for the current battle (get_state → tactics.candidates). ' +
+      'Each candidate is concrete and comes with numbers worked out from the real game rules, e.g. "fight with slot 2 keeping 200 px from ' +
+      'Geodude (type multiplier 1.6, 3.1 s to kill)", "break out to the NE gap", "collect 6 XP of gems", "stand on the healing spring", ' +
+      '"lure 3 chasers over the explosive trap". The move slot is part of the tactic. ' +
+      'Returns {tactic: id, label, probabilities: {id: p}, confidence, model}. With apply=true the autopilot (turned on if it was off) ' +
+      'carries it out for apply_ms (default 4000) and adds applied: true; without apply it is advice only. Needs at least 2 candidates ' +
+      '(during a run; the page reports them about 4 times per second).' + KEY_NOTE,
+    inputSchema: {
+      apply: z.boolean().optional().describe('true = also make the autopilot follow it now. Default false (advice only).'),
+      apply_ms: z.number().int().min(500).max(15000).optional().describe('How long the autopilot follows the tactic when applied (ms). Default 4000.'),
+      jev_key: jevKeyArg,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  }, guard(async ({ apply, apply_ms, jev_key }, extra) => {
+    const key = keyFrom(extra, jev_key);
+    const game = ctx.requireGame();
+    if (!game.state) return fail('no battle state yet (the page has not reported one); try again in a moment');
+    if (tacticsOf(game.state).length < 2) return fail('no tactic candidates right now (they exist only during a run, with the player alive)');
+    const out = parseTacticAnswer(await ask(key, summarizeState(game.state, null), tacticQuestions(game.state)), game.state);
+    if (apply) {
+      const r = await ctx.sendCmd('tactic', { id: out.tactic, ms: apply_ms ?? 4000 });
+      if (!r.ok) return fail(`Jev picked "${out.tactic}" but the page could not apply it: ${r.error}`);
       out.applied = true;
     } else {
       ctx.sendCmd('mark', {}).catch(() => {});   // advice only -> AI-assisted (🧠)
@@ -238,6 +175,7 @@ export function register(server, ctx) {
     overlays_only: a.overlaysOnly,
     rerolls: a.rerolls,
     strategy_updates: a.strategies,
+    slot_switches: a.slotSwitches,
     autopilot_mode: a.mode,
     last_error: a.lastError,
     ...(a.running ? {} : { stop_reason: a.stopReason }),
@@ -257,7 +195,7 @@ export function register(server, ctx) {
   const errorOf = (e) => (e instanceof ToolError || e?.name === 'GameError' ? e.message : 'internal error');
 
   async function handleChoice(a, game, choice) {
-    const withReroll = choice.kind === 'levelup' && (choice.rerolls ?? 0) > 0 && !a.justRerolled;
+    const withReroll = canReroll(choice) && !a.justRerolled;
     a.justRerolled = false;
     let ev;
     try {
@@ -292,6 +230,10 @@ export function register(server, ctx) {
       if (s.mode !== (game.state?.autopilot?.mode ?? a.mode)) {
         const r = await ctx.sendCmd('autopilot', { mode: s.mode });
         if (r.ok) a.mode = s.mode; else a.lastError = `autopilot failed: ${r.error}`;
+      }
+      if (s.slot != null && s.slot !== game.state?.player?.active) {
+        const r = await ctx.sendCmd('active', { slot: s.slot });
+        if (r.ok) a.slotSwitches++; else a.lastError = `active move failed: ${r.error}`;
       }
     } catch (e) {
       a.lastError = errorOf(e);
@@ -329,7 +271,7 @@ export function register(server, ctx) {
       'it sets the autopilot to "kite", then on every new choice screen asks Jev (like evaluate_choices) and picks the most likely card when ' +
       'Jev\'s confidence >= min_confidence (otherwise it only draws the probabilities and leaves the pick to the player); on level-up screens it ' +
       'rerolls first when Jev rates a reroll above 0.7 (at most once per screen); every strategy_every_s seconds it asks Jev for the autopilot mode ' +
-      '(like suggest_strategy) and applies it. It stops on auto_play(false), release(), when this MCP session closes, when the game is unpaired or its ' +
+      'and, with 2+ move slots, the active move (like suggest_strategy) and applies both. It stops on auto_play(false), release(), when this MCP session closes, when the game is unpaired or its ' +
       'session ends, or if the key is rejected. The key is kept in memory only while the loop runs. Calling it again while running restarts it with ' +
       'the new settings. Check progress with auto_play_status. The run is marked 🤖 (played by AI) on the leaderboard.' + KEY_NOTE,
     inputSchema: {
@@ -351,7 +293,7 @@ export function register(server, ctx) {
     const a = {
       running: true, key, sid: game.sid,
       minConf: min_confidence ?? 0.35, everyMs: (strategy_every_s ?? 4) * 1000,
-      startedAt: Date.now(), evaluations: 0, choices: 0, overlaysOnly: 0, rerolls: 0, strategies: 0,
+      startedAt: Date.now(), evaluations: 0, choices: 0, overlaysOnly: 0, rerolls: 0, strategies: 0, slotSwitches: 0,
       mode: null, lastError: null, stopReason: null, justRerolled: false,
       ctrl: new AbortController(), offs: [],
     };
@@ -369,7 +311,7 @@ export function register(server, ctx) {
     title: 'auto_play status',
     description:
       'Status of this session\'s auto_play loop: {running, min_confidence, strategy_every_s, started_at, evaluations, choices_made, ' +
-      'overlays_only (low-confidence screens left to the player), rerolls, strategy_updates, autopilot_mode, last_error, stop_reason (when stopped)}. ' +
+      'overlays_only (low-confidence screens left to the player), rerolls, strategy_updates, slot_switches, autopilot_mode, last_error, stop_reason (when stopped)}. ' +
       'Does not call Jev and needs no key.',
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, guard(async () => ok(statusOf(auto || last))));

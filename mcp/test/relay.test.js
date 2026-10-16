@@ -67,7 +67,7 @@ describe('relay', () => {
 
     const agent = await newAgent(base);
     const tools = (await agent.client.listTools()).tools.map((t) => t.name).sort();
-    assert.deepEqual(tools, ['auto_play', 'auto_play_status', 'choose', 'evaluate_choices', 'get_choice', 'get_state', 'move', 'pair', 'release', 'reroll', 'set_autopilot', 'should_reroll', 'suggest_strategy', 'wait_for_choice']);
+    assert.deepEqual(tools, ['auto_play', 'auto_play_status', 'choose', 'evaluate_choices', 'get_choice', 'get_state', 'move', 'pair', 'release', 'reroll', 'set_active_move', 'set_autopilot', 'should_reroll', 'suggest_strategy', 'suggest_tactic', 'wait_for_choice']);
 
     // not paired yet
     let r = await agent.call('get_state');
@@ -134,13 +134,16 @@ describe('relay', () => {
     assert.ok(!(await agent.call('reroll')).isError);
     assert.ok(!(await agent.call('move', { dx: 1, dy: 0, ms: 500 })).isError);
     assert.ok(!(await agent.call('set_autopilot', { mode: 'kite', weights: { enemy: 2 } })).isError);
+    assert.ok(!(await agent.call('set_active_move', { slot: 1 })).isError);
     assert.ok(!(await agent.call('release')).isError);
     assert.deepEqual(seen.map((c) => [c.op, c.args]), [
       ['reroll', { cid: 1 }],
       ['move', { dx: 1, dy: 0, ms: 500 }],
       ['autopilot', { mode: 'kite', weights: { enemy: 2 } }],
+      ['active', { slot: 1 }],
       ['release', {}],
     ]);
+    assert.ok((await agent.call('set_active_move', { slot: -1 })).isError);
     // schema validation
     assert.ok((await agent.call('move', { dx: 1, dy: 0, ms: 10 })).isError);
     assert.ok((await agent.call('set_autopilot', { mode: 'fly' })).isError);

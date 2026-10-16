@@ -113,7 +113,7 @@ describe('jev tools', () => {
   test('tools/list has the Jev tools with complete descriptions', async () => {
     const agent = await newAgent(base);
     const tools = (await agent.client.listTools()).tools;
-    for (const name of ['evaluate_choices', 'should_reroll', 'suggest_strategy', 'auto_play', 'auto_play_status']) {
+    for (const name of ['evaluate_choices', 'should_reroll', 'suggest_strategy', 'suggest_tactic', 'auto_play', 'auto_play_status']) {
       const t = tools.find((x) => x.name === name);
       assert.ok(t, name);
       assert.ok(t.description.length > 150, `${name} description too short`);
@@ -278,6 +278,79 @@ describe('jev tools', () => {
     r = await agent.call('should_reroll');
     assert.ok(r.isError);
     assert.match(r.text, /not possible/);
+    await agent.close(); page.disconnect();
+  });
+
+  test('suggest_strategy with 2+ move slots also picks the active slot (apply -> active cmd)', async () => {
+    const { page, agent } = await setup({ choice: null });
+    const SLOTS = { ...STATE, enemies: STATE.enemies.map((e) => ({ ...e, types: e.boss ? ['rock', 'ground'] : ['normal', 'flying'] })),
+      player: { ...STATE.player, active: 0, slots: [
+        { index: 0, active: true, moves: [{ id: 'ember', name: 'Ascuas', lv: 3, type: 'fire', kind: 'projectile', range: 300, cd: 0.8 }] },
+        { index: 1, active: false, moves: [{ id: 'surf', name: 'Surf', lv: 1, type: 'water', kind: 'nova', radius: 120, cd: 2 }] },
+      ] } };
+    await page.report({ state: SLOTS });
+    fake.handler = (body) => ({ status: 200, json: answerFor(body) });      // picks the 2nd option: retreat / slot 1
+    let r = await agent.call('suggest_strategy', { apply: true });
+    assert.ok(!r.isError, r.text);
+    const sent = fake.requests.at(-1).body;
+    assert.deepEqual(Object.keys(sent.questions).sort(), ['mode', 'which_slot']);
+    assert.deepEqual(Object.keys(sent.questions.which_slot.criteria), ['0', '1']);
+    assert.match(sent.questions.which_slot.criteria['1'], /Surf \(water, nova, radius 120px, cooldown 2s, lv 1\)/);
+    assert.deepEqual(sent.state.enemies.types_within_300px, { normal: 1, flying: 1 });
+    assert.equal(sent.state.player.active_slot, 0);
+    assert.equal(r.value.slot, 1);
+    assert.deepEqual(r.value.slot_probabilities, { 0: 0.3, 1: 0.7 });
+    assert.ok(await waitFor(() => page.cmds.some((c) => c.op === 'active' && c.args.slot === 1), 2000), 'active cmd sent');
+    // Choice Band (locked) or a single slot: no slot question
+    await page.report({ state: { ...SLOTS, player: { ...SLOTS.player, locked: true } } });
+    r = await agent.call('suggest_strategy');
+    assert.deepEqual(Object.keys(fake.requests.at(-1).body.questions), ['mode']);
+    assert.equal(r.value.slot, undefined);
+    // auto_play switches the slot too
+    await page.report({ state: { ...SLOTS, autopilot: { mode: 'retreat', weights: {} } } });
+    const before = page.cmds.filter((c) => c.op === 'active').length;
+    await agent.call('auto_play', { enabled: true, strategy_every_s: 1 });
+    assert.ok(await waitFor(() => page.cmds.filter((c) => c.op === 'active').length > before, 3000), 'auto_play switched the slot');
+    const st = await agent.call('auto_play_status');
+    assert.ok(st.value.slot_switches >= 1, st.text);
+    await agent.call('auto_play', { enabled: false });
+    await agent.close(); page.disconnect();
+  });
+
+  test('suggest_tactic: asks Jev to pick one of the page\'s tactics (numbers in the criteria), apply -> tactic cmd', async () => {
+    const { page, agent } = await setup({ choice: null });
+    // No candidates yet -> clear error, no request to TypeSafe.
+    let r = await agent.call('suggest_tactic');
+    assert.ok(r.isError);
+    assert.match(r.text, /no tactic candidates/);
+    assert.equal(fake.requests.length, 0);
+    const TAC = { ...STATE, tactics: { plan: 'fight_s0', candidates: [
+      { id: 'fight_s0', kind: 'fight', label: 'Fight with slot 1 (Ascuas): keep 200 px from Rattata (normal)', score: 0.6,
+        numbers: { slot: 1, dps_vs_nearby: 52, type_multiplier: 1, target_seconds_to_kill: 0.4, target_outruns_you: false } },
+      { id: 'evade', kind: 'evade', label: 'Break out to the NE gap and regroup', score: 0.3, numbers: { surrounded_sectors_of_16: 9, gap_direction: 'NE' } },
+      { id: 'collect', kind: 'collect', label: 'Collect 6 XP worth of gems 120 px to the E', score: 0.2, numbers: { xp_value: 6 } },
+    ] } };
+    await page.report({ state: TAC });
+    fake.handler = (body) => ({ status: 200, json: answerFor(body, { best: 'evade', confidence: 0.66 }) });
+    r = await agent.call('suggest_tactic', { apply: true, apply_ms: 3000 });
+    assert.ok(!r.isError, r.text);
+    const sent = fake.requests.at(-1).body;
+    assert.deepEqual(Object.keys(sent.questions), ['tactic']);
+    const q = sent.questions.tactic;
+    assert.equal(q.type, 'choice');
+    assert.deepEqual(Object.keys(q.criteria), ['fight_s0', 'evade', 'collect']);
+    assert.match(q.criteria.fight_s0, /keep 200 px from Rattata .*\| slot=1, dps_vs_nearby=52, type_multiplier=1, target_seconds_to_kill=0.4, target_outruns_you=false/);
+    assert.match(q.instructions, /Only the moves in the ACTIVE slot attack/);
+    assert.equal(sent.state.current_tactic, 'fight_s0');
+    assert.deepEqual(r.value, { tactic: 'evade', label: 'Break out to the NE gap and regroup', probabilities: { fight_s0: 0.15, evade: 0.7, collect: 0.15 }, confidence: 0.66, model: 'jev-1.13.0', applied: true });
+    assert.ok(await waitFor(() => page.cmds.some((c) => c.op === 'tactic' && c.args.id === 'evade' && c.args.ms === 3000), 2000), 'tactic cmd sent');
+    // Advice only: marks the run, no tactic cmd.
+    const before = page.cmds.filter((c) => c.op === 'tactic').length;
+    r = await agent.call('suggest_tactic');
+    assert.ok(!r.isError, r.text);
+    assert.equal(r.value.applied, undefined);
+    assert.ok(await waitFor(() => page.cmds.some((c) => c.op === 'mark'), 2000));
+    assert.equal(page.cmds.filter((c) => c.op === 'tactic').length, before);
     await agent.close(); page.disconnect();
   });
 
