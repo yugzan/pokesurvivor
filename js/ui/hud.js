@@ -205,6 +205,10 @@ G.HUD = (() => {
     // Eventos: cuenta atrás, flecha al Pokémon perdido / a la marca y a los duendes.
     G.Events.drawHud(ctx, w, h, pl, F);
 
+    // Botín raro fuera de pantalla (objetos y tickets): flechita en el borde con
+    // su icono y la distancia; sólo los 4 más cercanos para no llenar el borde.
+    drawLootArrows(ctx, w, h, pl, F);
+
     // Aviso propio al abrirse una grieta (no lo tapan los otros avisos).
     if (rift && rift.t < 4.5) {
       const a = Math.min(1, rift.t * 4, (4.5 - rift.t) * 2), pop = 1 + Math.max(0, 0.25 - rift.t) * 1.6;
@@ -387,6 +391,50 @@ G.HUD = (() => {
     }
 
     ctx.restore();
+  }
+
+  // ---------------- botín fuera de pantalla ----------------
+
+  const LOOT = { item: '#ffe14d', ticket: '#ffd23f', ticket10: '#c47bff' };
+
+  function drawLootArrows(ctx, w, h, pl, F) {
+    const cam = G.Camera;
+    const off = [];
+    for (const p of G.Pickups.all()) {
+      if (!LOOT[p.kind] || p.pulled) continue;
+      const sx = (p.x - cam.left()) * cam.scale, sy = (p.y - 6 - cam.top()) * cam.scale;
+      if (sx > 0 && sx < w && sy > 0 && sy < h) continue;
+      off.push({ p, sx, sy, d2: G.U.dist2(pl.x, pl.y, p.x, p.y) });
+    }
+    if (!off.length) return;
+    off.sort((a, b) => a.d2 - b.d2);
+    const pulse = 0.7 + Math.sin(performance.now() / 200) * 0.3;
+    for (const o of off.slice(0, 4)) {
+      const { p, sx, sy } = o, col = LOOT[p.kind];
+      const M = 36, ex = G.U.clamp(sx, M, w - M), ey = G.U.clamp(sy, M + 70, h - M - 80);
+      const a = Math.atan2(sy - ey, sx - ex), ca = Math.cos(a), sa = Math.sin(a);
+      ctx.save();
+      ctx.translate(ex, ey);
+      ctx.globalAlpha = pulse;
+      ctx.beginPath();
+      ctx.moveTo(ca * 24, sa * 24);
+      ctx.lineTo(ca * 12 + Math.cos(a + 1.57) * 8, sa * 12 + Math.sin(a + 1.57) * 8);
+      ctx.lineTo(ca * 12 + Math.cos(a - 1.57) * 8, sa * 12 + Math.sin(a - 1.57) * 8);
+      ctx.closePath();
+      ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();
+      ctx.fillStyle = col; ctx.fill();
+      ctx.globalAlpha = 1;
+      // Icono del objeto sobre un disco oscuro, y la distancia debajo.
+      ctx.fillStyle = 'rgba(0,0,0,.6)';
+      ctx.beginPath(); ctx.arc(0, 0, 12, 0, 6.2832); ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = col; ctx.stroke();
+      G.Icons.draw(ctx, p.kind === 'item' ? p.value : p.kind, -9, -9, 18);
+      const label = Math.round(Math.sqrt(o.d2) / 32) + ' m';
+      ctx.font = F(800, 10); ctx.textAlign = 'center';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)';
+      ctx.strokeText(label, 0, 24); ctx.fillStyle = col; ctx.fillText(label, 0, 24);
+      ctx.restore();
+    }
   }
 
   // ---------------- cooperativo ----------------

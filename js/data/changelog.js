@@ -6,6 +6,10 @@
  * Cada línea en español y en inglés.
  */
 G.CHANGELOG = [
+  { d: '2026-10-16', title: ['Flechas al botín lejano', 'Arrows to far-off loot'], new: [
+    ['Los objetos y los tickets que se quedan fuera de la pantalla tienen ahora una flechita en el borde con su icono y a cuántos metros están (los 4 más cercanos), para que no se te pierdan en el mapa.',
+     'Items and tickets left off-screen now get a small arrow at the edge with their icon and how many metres away they are (the 4 closest), so you don’t lose them on the map.']
+  ] },
   { d: '2026-10-15', title: ['Traducción al chino tradicional', 'Traditional Chinese translation'], new: [
     ['Conexión con IA: en Ajustes > IA puedes dejar que un agente de IA (Claude, Codex…) juegue contigo a través de MCP. Te da un código de 6 caracteres para emparejarlo; el agente puede elegir cartas y moverse con un piloto automático, y tú puedes seguir eligiendo cuando quieras.',
      'AI connection: in Settings > AI you can let an AI agent (Claude, Codex…) play with you through MCP. You get a 6-character code to pair it; the agent can pick cards and move with an autopilot, and you can still choose yourself whenever you want.'],
