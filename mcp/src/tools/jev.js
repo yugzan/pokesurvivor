@@ -135,7 +135,8 @@ export function register(server, ctx) {
       'Ask Jev to pick one of the tactics the game page computed for the current battle (get_state → tactics.candidates). ' +
       'Each candidate is concrete and comes with numbers worked out from the real game rules, e.g. "fight with slot 2 keeping 200 px from ' +
       'Geodude (type multiplier 1.6, 3.1 s to kill)", "break out to the NE gap", "collect 6 XP of gems", "stand on the healing spring", ' +
-      '"lure 3 chasers over the explosive trap". The move slot is part of the tactic. ' +
+      '"lure 3 chasers over the explosive trap", and map objects: enter the rift (legendary fight), touch an altar, open a locked chest, ' +
+      'break a rock or chest, pick up a ticket or item, take cover from shooters. The move slot is part of the tactic. ' +
       'Returns {tactic: id, label, probabilities: {id: p}, confidence, model}. With apply=true the autopilot (turned on if it was off) ' +
       'carries it out for apply_ms (default 4000) and adds applied: true; without apply it is advice only. Needs at least 2 candidates ' +
       '(during a run; the page reports them about 4 times per second).' + KEY_NOTE,

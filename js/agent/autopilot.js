@@ -26,8 +26,9 @@ G.Autopilot = (() => {
   // Qué tácticas prefiere cada modo cuando no elige Jev (se suma a su puntuación).
   const MODE_BIAS = {
     kite: {},
-    retreat: { evade: 0.4, goto: 0.2, fight: -0.15, lure: 0.1 },
-    collect_xp: { collect: 0.35 },
+    // (Las de objetos del mapa también son 'goto': su sesgo va por id; el 'goto' de retreat es curarse.)
+    retreat: { evade: 0.4, goto: 0.2, fight: -0.15, lure: 0.1, cover: 0.3, rift: -0.2, altar: 0, bigchest: -0.2, break: -0.2, loot: -0.1 },
+    collect_xp: { collect: 0.35, loot: 0.3, break: 0.1 },
     hunt_boss: { boss: 0.5 }
   };
   const SLOT_DWELL = 8000, MANUAL_HOLD = 20000, PLAN_EVERY = 250, JEV_TTL = 3000;
@@ -103,17 +104,17 @@ G.Autopilot = (() => {
     else picked = null;
     if (!c) {
       const bias = MODE_BIAS[mode] || {};
-      const sc = x => x.score + (bias[x.boss ? 'boss' : x.kind] || 0) + (plan && plan.id === x.id ? 0.12 : 0);   // un poco de constancia
+      const sc = x => x.score + (bias[x.boss ? 'boss' : x.id in bias ? x.id : x.kind] || 0) + (plan && plan.id === x.id ? 0.12 : 0);   // un poco de constancia
       c = cands.slice().sort((a, b) => sc(b) - sc(a))[0] || null;
     }
     plan = c;
-    if (c && Number.isInteger(c.slot)) chooseSlot(pl, c.slot, now);
+    if (c && Number.isInteger(c.slot)) chooseSlot(pl, c.slot, now, !!c.needSlot);
     let tg = null;
     if (c && c.targetId != null) tg = G.EnemyMgr.all().find(e => e.id === c.targetId && !e.dead) || null;
     routePlan(pl, c, tg);
   }
 
-  function chooseSlot(pl, want, now) {
+  function chooseSlot(pl, want, now, force = false) {
     // ¿Lo ha cambiado otro? (Aprender un movimiento o fusionar también lo cambia: eso no cuenta.)
     const sig = pl.slots.map(g => g.length).join(',');
     if (mySlot >= 0 && pl.active !== mySlot && sig === mySig && pl === myPl) holdSlot();
@@ -121,7 +122,8 @@ G.Autopilot = (() => {
     if (want === pl.active || !pl.slots[want] || now < manualUntil) return;
     if (pl.hasItem('choiceband') && pl.slots[pl.active]) return;
     const cur = facts && facts.slots[pl.active];
-    const curUseless = !cur || cur.baseDps <= 0;
+    // force: el hueco activo no sirve para esta táctica (p. ej. Cadena no le da a una roca).
+    const curUseless = force || !cur || cur.baseDps <= 0;
     // Un hueco que no hace daño (Danza Espada, Agilidad...) se deja enseguida; si no, 8 s mínimo.
     if (!curUseless && now - slotAt < SLOT_DWELL) return;
     const nw = facts && facts.slots[want];
@@ -160,6 +162,14 @@ G.Autopilot = (() => {
     const liquidOk = !(G.World.liquidEffect(pl.mon.types) || {}).dmg;
     const free = (x, y) => G.World.isFree(x, y, rFree, liquidOk);
     const shots = G.Projectiles.all().filter(s => !s.friendly && !s.dead && (s.x - pl.x) ** 2 + (s.y - pl.y) ** 2 < 420 * 420);
+    // Hasta dónde llega cada disparo antes de chocar con una pared o un objeto sólido (combat.js resolve):
+    // detrás de un árbol no hace falta esquivar.
+    const stopT = new Map();
+    for (const s of shots) {
+      let st = 9;
+      if (s.vx || s.vy) for (let t = 0.05; t <= STEPS[2] + 0.01; t += 0.05) if (G.World.projectileBlock(s.x + (s.vx || 0) * t, s.y + (s.vy || 0) * t, s.r || 7)) { st = t; break; }
+      stopT.set(s, st);
+    }
     const hz = G.Hazards ? G.Hazards.all.filter(h => !h.hit) : [];
     const traps = facts ? facts.traps : [];
     const m = pl.activeMove && pl.activeMove();
@@ -192,10 +202,16 @@ G.Autopilot = (() => {
     if (chaseTarget) keep = Math.min(460, G.Tactics.hitRange(m) * 0.85);
     if (melee && target) keep = ready ? Math.max(20, (m.radius || 40) * 0.6) : (m.radius || 40) + 55;   // golpear y apartarse
     // (Salir del cerco: el rumbo lo da sobre todo la simulación y la horda por cada lado; el hueco sólo orienta.)
-    const goalW = !c ? 0 : c.kind === 'evade' ? 0.35 : c.kind === 'fight' ? (melee ? 1.4 : 1.0) : c.kind === 'goto' ? 1.4 : 1.1;
+    // (c.commit: la grieta saca de allí a todos los enemigos al entrar, así que se va a por ella aunque estén cerca.)
+    const goalW = !c ? 0 : c.kind === 'evade' ? 0.35 : c.kind === 'fight' ? (melee ? 1.4 : 1.0) : c.kind === 'goto' ? (c.commit ? 3.5 : 1.4) : 1.1;
 
     // El camino (routePlan) manda salvo al golpear cuerpo a cuerpo y al perseguir al corredor.
-    const useWay = !!way && !(melee && target && ready) && !chaseTarget && !(c && c.kind === 'circle');
+    // Cerca de un objetivo del mapa (c.within: grieta, altar, cofre, roca, botín, cobertura) se va
+    // directo y se queda: el camino evita las casillas a <0,45 s y no deja pararse en el sitio.
+    // (Sólo si se llega en línea recta: si hay una roca o una pared en medio, manda el camino.)
+    const holdGoal = !!c && c.kind === 'goto' && c.within != null && Math.hypot(c.goal[0] - pl.x, c.goal[1] - pl.y) < Math.max(90, c.within + 40)
+      && straightTo(pl, c.goal, c.within, free);
+    const useWay = !!way && !(melee && target && ready) && !chaseTarget && !(c && c.kind === 'circle') && !holdGoal;
     const circleGoal = c && c.kind === 'circle' ? circlePoint(pl, c) : null;
     // Peso de la horda: crece con cuántos hay en 400 px.
     let n400 = 0, crowdHere = 0;
@@ -210,13 +226,19 @@ G.Autopilot = (() => {
     for (const [dx, dy] of DIRS) {
       // Tu camino, con paredes: si algo te para, te quedas ahí.
       const P = [];
-      let px = pl.x, py = pl.y, blockedAt = -1, lastT = 0;
+      let px = pl.x, py = pl.y, blockedAt = -1, lastT = 0, stopped = false;
       for (let k = 0; k < STEPS.length; k++) {
         // El agua frena (×0,6; pantano ×0,45; los de tipo agua no): cuenta dónde pisas en cada tramo.
         const t = STEPS[k], step = (wSlow < 1 && G.World.isLiquid(px, py) ? dry * wSlow : dry) * (t - lastT); lastT = t;
-        if (blockedAt < 0 && (dx || dy)) {
+        if (!stopped && (dx || dy)) {
           const nx = px + dx * step, ny = py + dy * step;
-          if (free(nx, ny) && free((px + nx) / 2, (py + ny) / 2)) { px = nx; py = ny; } else blockedAt = k;
+          if (free(nx, ny) && free((px + nx) / 2, (py + ny) / 2)) { px = nx; py = ny; }
+          else {
+            stopped = true;
+            // Al lado de un objetivo sólido (altar, cofre) un paso entero choca: se cuenta el medio paso, sin castigo.
+            const f = holdGoal ? [0.5, 0.25].find(q => free(px + dx * step * q, py + dy * step * q)) : null;
+            if (f) { px += dx * step * f; py += dy * step * f; } else blockedAt = k;
+          }
         }
         P.push([px, py]);
       }
@@ -269,6 +291,7 @@ G.Autopilot = (() => {
       for (const s of shots) {
         for (let k = 0; k < 3; k++) {
           const t = STEPS[k], [qx, qy] = P[k];
+          if (t > stopT.get(s)) break;
           const clr = Math.hypot(s.x + (s.vx || 0) * t - qx, s.y + (s.vy || 0) * t - qy) - (s.r || 7) - pl.r;
           sc += SW[k] * 2.2 * hpScale * Math.min(2, (s.dmg || 10) / Math.max(8, pl.hp) * 5) * (clr <= 2 ? 3 : Math.exp(-clr / 14));
         }
@@ -456,6 +479,17 @@ G.Autopilot = (() => {
     return goal;
   }
 
+  /** ¿Se llega andando en línea recta hasta `within` px del objetivo? */
+  function straightTo(pl, goal, within, free) {
+    const d = Math.hypot(goal[0] - pl.x, goal[1] - pl.y), n = Math.ceil(d / 8);
+    for (let i = 1; i <= n; i++) {
+      const k = i / n;
+      if (d * (1 - k) < within) return true;
+      if (!free(pl.x + (goal[0] - pl.x) * k, pl.y + (goal[1] - pl.y) * k)) return false;
+    }
+    return true;
+  }
+
   /** Coste (negativo = bueno) de cómo deja cada dirección lo que pide la táctica. */
   function goalCost(pl, c, target, keep, P, dx, dy, spd) {
     const [qx, qy] = P[2], span = spd * STEPS[2];
@@ -471,6 +505,19 @@ G.Autopilot = (() => {
         const [gx, gy] = c.goal;
         const d0 = Math.hypot(gx - pl.x, gy - pl.y), d1 = Math.hypot(gx - qx, gy - qy);
         if (c.stay && d0 < 14) return dx || dy ? 0.5 : -0.5;
+        if (c.within != null) {
+          // Quedarse en la banda [near, within] alrededor del objetivo (cofre: 3,5 s a su lado; roca: a tiro).
+          const lo = c.near || 0, hi = c.within;
+          const out1 = d1 > hi ? d1 - hi : d1 < lo ? lo - d1 : 0, out0 = d0 > hi ? d0 - hi : d0 < lo ? lo - d0 : 0;
+          if (!out0) return out1 ? 0.6 + out1 / span : (dx || dy ? 0.15 : -0.3);
+          // Al acercarse cuenta el punto del recorrido más cercano (si no, pasarse de largo en 0,8 s parece alejarse).
+          let best = out1;
+          for (let k = 0; k < 2; k++) {
+            const dk = Math.hypot(gx - P[k][0], gy - P[k][1]);
+            best = Math.min(best, dk > hi ? dk - hi : dk < lo ? lo - dk : 0);
+          }
+          return (best - out0) / span;
+        }
         return (d1 - d0) / span;
       }
       case 'lure': {
@@ -500,6 +547,8 @@ G.Autopilot = (() => {
     get candidates() { return cands; },
     get debug() { return lastDbg; },
     get way() { return way; },
+    /** El hueco lo ha fijado el jugador o un agente: no se cambia hasta que pase (holdSlot). */
+    get slotLocked() { return performance.now() < manualUntil; },
     get circleGem() { return circleGem; },
     get picked() { return picked && performance.now() < picked.until ? { ...picked } : null; }
   };
