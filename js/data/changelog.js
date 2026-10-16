@@ -6,6 +6,10 @@
  * Cada línea en español y en inglés.
  */
 G.CHANGELOG = [
+  { d: '2026-10-16', title: ['Flechas al botín lejano', 'Arrows to far-off loot'], new: [
+    ['Los objetos y los tickets que se quedan fuera de la pantalla tienen ahora una flechita en el borde con su icono y a cuántos metros están (los 4 más cercanos), para que no se te pierdan en el mapa.',
+     'Items and tickets left off-screen now get a small arrow at the edge with their icon and how many metres away they are (the 4 closest), so you don’t lose them on the map.']
+  ] },
   { d: '2026-10-15', title: ['Traducción al chino tradicional', 'Traditional Chinese translation'], new: [
     ['El juego ahora incluye chino tradicional: menús, movimientos, objetos, misiones, avisos y nombres de los 966 Pokémon. Se puede cambiar el idioma en Ajustes > Gráficos.',
      'The game now includes Traditional Chinese: menus, moves, items, missions, messages and names for all 966 Pokémon. Change the language in Settings > Graphics.']
