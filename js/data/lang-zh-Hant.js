@@ -1290,6 +1290,7 @@ G.I18n.add({
   "PokéSurvivor – Juego Pokémon gratis online estilo Survivor.io": "PokéSurvivor — 免費寶可夢生存遊戲",
   "Traducción al chino tradicional": "繁體中文化",
   "Flechas al botín lejano": "遠處掉落物的方向箭頭",
+  "La IA elige mejor el movimiento": "AI 更會挑選招式",
   "El juego ahora incluye chino tradicional: menús, movimientos, objetos, misiones, avisos y nombres de los 966 Pokémon. Se puede cambiar el idioma en Ajustes > Gráficos.": "新增繁體中文：選單、招式、道具、任務、提示與 966 隻寶可夢名稱。可在「設定 → 畫面」切換語言。",
   "Si vinculaste tu Gmail, pulsa": "若已連結 Gmail，請點選",
   "con ese Gmail: es tu misma cuenta. Si no lo vinculaste, no se puede recuperar: crea una cuenta nueva (y esta vez vincula tu Gmail desde el aviso que sale al entrar).": "並使用該 Gmail，即可登入原帳號。若未連結則無法找回，請建立新帳號，並在登入提示中連結 Gmail。",

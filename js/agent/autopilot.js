@@ -36,7 +36,7 @@ G.Autopilot = (() => {
   let over = null;                 // { v:[dx,dy], until } orden move en curso
   let raf = 0;
   let picked = null;               // { id, until, source } táctica elegida desde fuera (Jev, agente)
-  let plan = null, planAt = 0, cands = [], facts = null;
+  let plan = null, planAt = 0, cands = [], facts = null, factsT = 0;
   let slotAt = 0, mySlot = -1, mySig = '', myPl = null, manualUntil = 0;
   let lastLog = '';
 
@@ -97,7 +97,7 @@ G.Autopilot = (() => {
   // ---------------- elegir táctica y hueco ----------------
 
   function replan(pl, now) {
-    facts = G.Tactics.facts(pl);
+    facts = G.Tactics.facts(pl); factsT = performance.now();
     cands = G.Tactics.candidates(pl, facts);
     let c = null;
     if (picked && now < picked.until) c = cands.find(x => x.id === picked.id) || null;
@@ -625,6 +625,8 @@ G.Autopilot = (() => {
     get mode() { return mode; },
     get weights() { return { ...weights }; },
     get moving() { return !!over; },
+    /** Los hechos del último replanteo (G.Tactics.facts) y cuándo (performance.now(), ms). */
+    get facts() { return facts; }, get factsAt() { return factsT; },
     /** La táctica en curso y las candidatas (para el estado que ven los agentes). */
     get plan() { return plan; },
     get candidates() { return cands; },

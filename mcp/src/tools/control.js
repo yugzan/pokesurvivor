@@ -90,7 +90,7 @@ export function register(server, ctx) {
     description:
       'Only the moves in the ACTIVE slot are cast (automatically); this switches it, like the player pressing 1, 2, 3... ' +
       '`slot` is the 0-based index from get_state player.slots[] (each slot lists its moves with type, kind such as projectile/beam/melee, range or radius, and cooldown; ' +
-      'a bond groups several moves in one slot). Pick the slot whose moves fit the enemies (type matchups, distance). ' +
+      'a bond groups several moves in one slot; player.stats.dps_slotN is the damage per second the game computes for slot N+1 against the nearby enemies). Pick the slot whose moves fit the enemies (type matchups, distance). ' +
       'Fails while the player holds the Choice Band (player.locked = true), outside a run, or for a slot that does not exist.',
     inputSchema: { slot: z.number().int().min(0).max(11).describe('0-based slot index from get_state player.slots[].index.') },
     annotations: act,

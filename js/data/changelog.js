@@ -6,6 +6,10 @@
  * Cada línea en español y en inglés.
  */
 G.CHANGELOG = [
+  { d: '2026-10-18', title: ['La IA elige mejor el movimiento', 'The AI picks moves better'], chg: [
+    ['El piloto automático y Jev calculan ahora el daño de cada movimiento como de verdad lo hace el juego (cuántos enemigos pilla cada forma de atacar, su alcance, quemaduras y veneno), medido en partidas de prueba. Antes creían que Giro Fuego y demás órbitas pegaban más de lo real (hasta unas 4 veces) y que Sustituto y Fuego Fatuo pegaban 10 veces menos, así que elegían mal el hueco. Las cartas de movimiento que ve Jev llevan también ese daño por segundo.',
+     'The autopilot and Jev now work out each move’s damage the way the game really deals it (how many enemies each attack shape hits, its range, burn and poison), measured in test runs. Before, they thought Fire Spin and the other orbits hit harder than they do (up to about 4 times) and that Substitute and Will-O-Wisp hit 10 times less, so they picked the wrong slot. The move cards Jev sees now also show that damage per second.']
+  ] },
   { d: '2026-10-16', title: ['Flechas al botín lejano', 'Arrows to far-off loot'], new: [
     ['Los objetos y los tickets que se quedan fuera de la pantalla tienen ahora una flechita en el borde con su icono y a cuántos metros están (los 4 más cercanos), para que no se te pierdan en el mapa.',
      'Items and tickets left off-screen now get a small arrow at the edge with their icon and how many metres away they are (the 4 closest), so you don’t lose them on the map.'],
