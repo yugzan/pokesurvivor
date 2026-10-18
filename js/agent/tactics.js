@@ -19,6 +19,26 @@
  *   - trampas: veneno / pegajosa / explosiva en 74 px; saltan al pisarlas un enemigo que no vuela
  *     o tú; a ti te afectan a <52 px (interact.js)
  *   - lava y demás charcos que queman: los enemigos los rodean (pathing.js), no sirven de cebo
+ * Daño de cada movimiento (versión del 2026-10-18; moveRates / dpsOn): golpes contados con la geometría
+ * real de cada forma, desde donde estarás (a engageDist del más cercano) contra el grupo de < 250 px:
+ *   - recarga max(0,05, cd · cdMul); los que necesitan blanco no se lanzan si no está a reach() (combat.js:27-41, :68-77)
+ *   - proyectil: abanico (i/(n−1) − 0,5)·spread·n, ±0,03 rad al azar, perfora `pierce` (combat.js:86-104)
+ *   - nova: n en círculo, cada uno se para en el primero; teledirigido: se curva (projectile.js:70-80) (combat.js:106-121)
+ *   - cono: abanico `arc`, alcance speed·life ×0,85–1,1 ×0,85–1,05 (combat.js:338-350); cuerpo a cuerpo: arco en
+ *     radius + radio del enemigo (combat.js:128-141); rayo: franja; embestida: cápsula (combat.js:143-170, :296-322)
+ *   - bumerán: va `radius` y vuelve, 2 golpes; con 2+ se abren ±spread (combat.js:212-224): ¡con 2 no da al de delante!
+ *   - cadena: salta al más cercano a < radius, ×0,85 cada salto (combat.js:227-254); meteoro: uno por enemigo a
+ *     < 340, los que sobran en 280 × 220 a tu alrededor (combat.js:271-283)
+ *   - torreta: detrás de ti, dispara cada `rate` al más cercano a < range durante min(dur, count·recarga), el
+ *     primero a 0,3 s (combat.js:285-294, :384-400): ~10× lo que se suponía
+ *   - órbita: elipse radius × 0,7·radius a `speed` rad/s; cada orbe vuelve a dar cada max(0,12, cd) sólo mientras
+ *     toca: 1 + ⌊tiempo encima / cd⌋ golpes por pasada (combat.js:468-500, :618-623): ~4× menos que lo supuesto
+ *   - minas: estallan si alguien pasa a < 14 px + su radio, las viejas se quitan al pasar de 4 + 2·count
+ *     (combat.js:257-269, :366-375); rastro: charcos que dañan cada 0,5 s (combat.js:324-336, :401-404)
+ *   - quemadura 1,6·pilas·(1 + 0,06·nivel) cada 0,5 s, veneno 1,2 %·vida máx.·pilas + 1 cada 0,6 s; tope 8 pilas,
+ *     duran 3 / 4 s desde el último golpe (enemy.js:146-153, :255-263); media en lo que tarda en caer (máx. 15 s)
+ *   - medido en el juego (banco de pruebas, 2026-10-18): parte de minas que pisan los perseguidores MINE_ON y
+ *     del rastro TRAIL_ON (dependen de cómo te persiguen; no salen de una regla)
  * Objetos del mapa (versión del 2026-10-16):
  *   - grieta: dura 45 s y se entra a <30 px de (x, y−10) (rift.js:25, :42); el legendario sale del
  *     grupo de legendarios con sprite, ×4 los que aún no has vencido (rift.js:92-98); vida
@@ -120,18 +140,8 @@ G.Tactics = (() => {
     }
   }
 
-  /** Golpes "equivalentes a uno" por lanzamiento contra un blanco, y si hace daño en área. */
-  const SHAPE = {
-    projectile: m => [Math.max(1, (m.count | 0) * 0.75), false],
-    nova: m => [Math.max(1, (m.count | 0) * 0.22), true],
-    cone: m => [Math.max(1, (m.count | 0) * 0.45), true],
-    melee: () => [1, true], beam: () => [1, true], aura: () => [1, true],
-    boomerang: () => [1.6, true], chain: m => [1 + (m.count | 0) * 0.6, false],
-    meteor: m => [Math.max(1, (m.count | 0) * 0.6), true], dash: () => [1, true],
-    orbit: m => [Math.max(1, (m.count | 0) * 0.5), true],
-    mine: () => [0.6, true], trail: () => [0.6, true], turret: () => [0.7, false],
-    buff: () => [0, false]
-  };
+  /** ¿Hace daño en área (puede dar a varios a la vez)? */
+  const AREA = ['nova', 'cone', 'melee', 'beam', 'aura', 'boomerang', 'meteor', 'dash', 'orbit', 'mine', 'trail'];
 
   /** Tu velocidad fuera del agua (pl.spd ya trae el frenazo si estás dentro). */
   function drySpd(pl) {
@@ -141,12 +151,325 @@ G.Tactics = (() => {
 
   const typeK = (type, e) => G.Types.mult(type, e.types) * G.Weather.mult(type);
 
-  /** Daño por segundo de un movimiento contra un enemigo (sin contar el área). */
+  // ---------------- conocimiento: daño real de un movimiento (modelo geométrico) ----------------
+  // Cuenta, con la posición de cada enemigo, cuántos golpes le da de verdad cada forma de atacar
+  // (combat.js) y suma quemadura y veneno (enemy.js). Comprobado contra el juego (2026-10-18): banco
+  // de pruebas con muñecos a 60/200/400 px, 10 repartidos en 250 px y 8 que te persiguen.
+  const TARGETED = ['melee', 'beam', 'projectile', 'boomerang', 'chain', 'meteor', 'dash', 'cone'];   // combat.js needsTarget
+  /** Distancia del blanco a la que se lanza (combat.js reach). */
+  function reachOf(m) {
+    switch (m.kind) {
+      case 'melee': return m.radius + 30;
+      case 'beam': return m.radius + 20;
+      case 'boomerang': return m.radius + 40;
+      case 'chain': return 280;
+      case 'meteor': return 340;
+      case 'dash': return m.radius + 60;
+      case 'cone': return m.speed * m.life + 30;
+      default: return 520;
+    }
+  }
+  const REF_R = 14, REF_HP = 100;            // enemigo de referencia cuando no hay uno concreto (radio y vida típicos)
+  const TRAIL_ON = 0.3;                      // parte del tiempo que un perseguidor pisa tu rastro (medido, ver trail)
+  const MINE_ON = 0.5;                       // parte de las minas que pisan los perseguidores (medido, ver mine)
+  const angDiff = (a, b) => Math.abs(((a - b + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+  const chases = e => !KEEPERS.includes(e.behavior) && (e.spd || 0) > 0;
+  const castEvery = (pl, m) => Math.max(0.05, m.cd * pl.cdMul);          // combat.js tickMove
+
+  /**
+   * Proyectil recto desde (ox, oy): suma w a los `cap` primeros que pilla (colisión barrida, combat.js resolve).
+   * jit: desvío al azar del ángulo (±rad), que a veces hace fallar o acertar por poco.
+   */
+  function ray(ox, oy, th, R, size, foes, cap, out, w, jit = 0, rangeP = null) {
+    const c = Math.cos(th), s = Math.sin(th), on = [];
+    for (let j = 0; j < foes.length; j++) {
+      const f = foes[j], dx = f.x - ox, dy = f.y - oy;
+      const al = dx * c + dy * s;
+      if (al < -f.r || al - f.r > R) continue;
+      const lat = Math.abs(dy * c - dx * s), half = f.r + size, sp = jit * Math.max(0, al);
+      const p = sp > 0.5 ? U.clamp((Math.min(lat + sp, half) - Math.max(lat - sp, -half)) / (2 * sp), 0, 1) : lat <= half ? 1 : 0;
+      if (p > 0) on.push([al, j, p]);
+    }
+    on.sort((a, b) => a[0] - b[0]);
+    for (let k = 0; k < on.length && k < cap; k++) {
+      const [al, j, p] = on[k];
+      out[j] += w * p * (rangeP ? rangeP(al - foes[j].r) : 1);
+    }
+  }
+
+  /** Teledirigido (projectile.js update): mayor desvío inicial (rad) con el que aún da a un blanco quieto a d px. */
+  const homingMemo = new Map();
+  function homingCapture(m, d, r) {
+    const key = [m.speed, m.homing, m.life, m.size, Math.round(d / 8), Math.round(r)].join('|');
+    if (homingMemo.has(key)) return homingMemo.get(key);
+    const sp0 = m.speed || 220, life = m.life || 1.2, rr = (r + (m.size || 6)) ** 2, dt = 1 / 60;
+    const hits = a => {
+      let x = 0, y = 0, vx = Math.cos(a) * sp0, vy = Math.sin(a) * sp0;
+      for (let t = 0; t < life; t += dt) {
+        const tx = d - x, ty = -y, l = Math.hypot(tx, ty) || 1, sp = Math.hypot(vx, vy);
+        if (l <= 340) { const k = Math.exp(-m.homing * dt); vx = tx / l * sp + (vx - tx / l * sp) * k; vy = ty / l * sp + (vy - ty / l * sp) * k; }
+        x += vx * dt; y += vy * dt;
+        if ((x - d) ** 2 + y * y <= rr) return true;
+      }
+      return false;
+    };
+    let lo = 0, hi = Math.PI;
+    if (!hits(0)) lo = hi = 0;
+    else if (hits(Math.PI)) lo = Math.PI;
+    else for (let i = 0; i < 10; i++) { const mid = (lo + hi) / 2; if (hits(mid)) lo = mid; else hi = mid; }
+    if (homingMemo.size > 400) homingMemo.clear();
+    homingMemo.set(key, lo);
+    return lo;
+  }
+
+  /**
+   * Golpes por segundo que da el movimiento m a cada enemigo de `foes` estando tú en (px, py) y
+   * apuntando al más cercano (player.js update). → { w: golpes con su peso de daño, n: golpes (estados) }
+   */
+  function moveRates(pl, m, px, py, foes) {
+    const N = foes.length, w = new Float64Array(N), n = new Float64Array(N);
+    if (!N || !m.dmg) return { w, n };
+    let ti = -1, td = Infinity;
+    for (let j = 0; j < N; j++) { const d = Math.hypot(foes[j].x - px, foes[j].y - py); if (d < td) { td = d; ti = j; } }
+    if (TARGETED.includes(m.kind) && td > reachOf(m)) return { w, n };      // no se lanza sin blanco a tiro
+    const tg = foes[ti], a0 = Math.atan2(tg.y - py, tg.x - px);
+    const cnt = Math.max(1, m.count | 0), per = 1 / castEvery(pl, m);
+    const dist = f => Math.hypot(f.x - px, f.y - py);
+    const add = (j, k, hits = k) => { w[j] += k; n[j] += hits; };
+    switch (m.kind) {
+      case 'projectile': {                  // combat.js fireProjectiles: abanico de `count`, perforación
+        const R = Math.min(520, (m.speed || 300) * (m.life || 1.5)), sp = m.spread || 0;
+        for (let i = 0; i < cnt; i++) {
+          const off = cnt === 1 || m.homing ? 0 : (i / (cnt - 1) - 0.5) * sp * cnt;   // teledirigido: va al más cercano
+          ray(px, py, a0 + off, R, m.size || 6, foes, (m.pierce | 0) + 1, w, per, 0.03);
+        }
+        n.set(w); return { w, n };
+      }
+      case 'nova': {                        // combat.js nova: `count` (≥3) en círculo; cada uno se para en el primero (o perfora)
+        const k = Math.max(3, m.count | 0), R = (m.speed || 220) * (m.life || 1.2), s = m.size || 6, cap = (m.pierce | 0) + 1;
+        const iv = [];
+        for (let j = 0; j < N; j++) {
+          const f = foes[j], d = dist(f);
+          if (d - f.r > R) continue;
+          let half = d <= f.r + s ? Math.PI : Math.asin((f.r + s) / d);
+          if (m.homing && j === ti) half = Math.max(half, homingCapture(m, d, f.r));   // se curvan hacia él
+          iv.push([Math.atan2(f.y - py, f.x - px), half, d, j]);
+        }
+        if (!iv.length) return { w, n };
+        iv.sort((a, b) => a[2] - b[2]);
+        const S = 240, step = per * k / S;
+        for (let i = 0; i < S; i++) {
+          const th = i / S * 6.2832;
+          let c = 0;
+          for (const v of iv) if (angDiff(th, v[0]) <= v[1]) { add(v[3], step); if (++c >= cap) break; }
+        }
+        return { w, n };
+      }
+      case 'cone': {                        // combat.js cone: abanico `arc`, alcance speed·life ×0,85–1,1 ×0,85–1,05
+        const k = Math.max(2, m.count | 0), arc = m.arc || 0.9, R = m.speed * m.life;
+        const rangeP = x => U.clamp((1.155 - x / R) / 0.4325, 0, 1);
+        for (let i = 0; i < k; i++) ray(px, py, a0 + (i / (k - 1) - 0.5) * arc, R * 1.155, m.size || 6, foes, (m.pierce | 0) + 1, w, per, 0.05, rangeP);
+        n.set(w); return { w, n };
+      }
+      case 'melee': {                       // combat.js melee: arco `arc` de radio `radius`
+        const half = Math.min(m.arc, 6.2832) / 2;
+        for (let j = 0; j < N; j++) {
+          const f = foes[j];
+          if (dist(f) <= m.radius + f.r && angDiff(Math.atan2(f.y - py, f.x - px), a0) <= half) add(j, per);
+        }
+        return { w, n };
+      }
+      case 'beam': case 'dash': {           // combat.js beam (franja) / dash (cápsula: segDist2): recto, largo `radius`
+        const half = (m.width || 34) / 2, c = Math.cos(a0), s = Math.sin(a0), L = m.radius;
+        for (let j = 0; j < N; j++) {
+          const f = foes[j], dx = f.x - px, dy = f.y - py, al = dx * c + dy * s, lat = Math.abs(dy * c - dx * s);
+          const hit = m.kind === 'beam' ? al >= -f.r && al <= L + f.r && lat <= half + f.r
+            : Math.hypot(Math.max(0, al - L, -al), lat) <= half + f.r;
+          if (hit) add(j, per);
+        }
+        return { w, n };
+      }
+      case 'aura': {                        // combat.js aura: todo lo que toca el círculo
+        for (let j = 0; j < N; j++) if (dist(foes[j]) <= m.radius + foes[j].r) add(j, per);
+        return { w, n };
+      }
+      case 'boomerang': {                   // combat.js boomerang: va `radius` y vuelve; golpea a la ida y a la vuelta
+        const sp = m.spread || 0.5;
+        for (let i = 0; i < cnt; i++) {
+          const off = cnt === 1 ? 0 : (i / (cnt - 1) - 0.5) * sp * Math.min(cnt, 3);
+          ray(px, py, a0 + off, m.radius, m.size || 6, foes, 999, w, 2 * per);
+        }
+        n.set(w); return { w, n };
+      }
+      case 'chain': {                       // combat.js chain: salta al más cercano a < radius, cada salto ×0,85
+        let cur = ti, k = 1;
+        const done = new Set();
+        for (let i = 0; i < cnt && cur >= 0; i++) {
+          done.add(cur);
+          const f = foes[cur];
+          const hex = m.hex && (f.burn > 0 || f.poison > 0 || f.slow > 0) ? m.hex : 1;
+          add(cur, per * k * hex, per);
+          k *= 0.85;
+          let best = -1, bd = m.radius * m.radius;
+          for (let j = 0; j < N; j++) {
+            if (done.has(j)) continue;
+            const d2 = (foes[j].x - f.x) ** 2 + (foes[j].y - f.y) ** 2;
+            if (d2 < bd) { bd = d2; best = j; }
+          }
+          cur = best;
+        }
+        return { w, n };
+      }
+      case 'meteor': {                      // combat.js meteors: uno por enemigo a < 340 (al azar); los que sobran, al azar
+        const near = [];
+        for (let j = 0; j < N; j++) if (dist(foes[j]) <= 340 + foes[j].r) near.push(j);
+        const R = m.radius, pick = Math.min(1, cnt / near.length), extra = Math.max(0, cnt - near.length);
+        for (const j of near) {
+          for (let k = 0; k < N; k++) {
+            if (Math.hypot(foes[k].x - foes[j].x, foes[k].y - foes[j].y) <= R + foes[k].r) add(k, per * pick);
+          }
+        }
+        if (extra) for (let k = 0; k < N; k++) {        // caen en un rectángulo de 280 × 220 a tu alrededor
+          const f = foes[k], rr = (R + f.r) ** 2;
+          if (Math.abs(f.x - px) > 140 + R + f.r || Math.abs(f.y - py) > 110 + R + f.r) continue;
+          let inA = 0;
+          for (let gx = -130; gx <= 130; gx += 20) for (let gy = -100; gy <= 100; gy += 20) if ((px + gx - f.x) ** 2 + (py + gy - f.y) ** 2 <= rr) inA++;
+          add(k, per * extra * inA / 154);
+        }
+        return { w, n };
+      }
+      case 'turret': {                      // combat.js turret + updateFields: dispara cada `rate` al más cercano a < range
+        const life = Math.min(m.dur || 6, cnt * castEvery(pl, m));   // la nueva sustituye a la más vieja
+        const shots = life > 0.3 ? (1 + Math.floor((life - 0.3) / (m.rate || 0.6))) * per : 0;
+        const ox = px - Math.cos(a0) * 24, oy = py - Math.sin(a0) * 24;     // se queda detrás de ti
+        let bj = -1, bd = (m.range || 300) ** 2;
+        for (let j = 0; j < N; j++) { const d2 = (foes[j].x - ox) ** 2 + (foes[j].y - oy) ** 2; if (d2 < bd) { bd = d2; bj = j; } }
+        if (bj >= 0) ray(ox, oy, Math.atan2(foes[bj].y - oy, foes[bj].x - ox), (m.speed || 300) * 1.4, m.size || 6, foes, (m.pierce | 0) + 1, w, shots);
+        n.set(w); return { w, n };
+      }
+      case 'mine': {                        // combat.js mines + updateFields: estallan si un enemigo pasa a < 14 px (+ su radio) ya armadas
+        const R = m.radius, ch = [];
+        for (let j = 0; j < N; j++) if (chases(foes[j]) && dist(foes[j]) < 300) ch.push(j);
+        if (ch.length) {
+          // Te persiguen y las pisan: cada mina, a quien la pisa y a los de al lado. No todas: se quitan las
+          // viejas al pasar de 4 + 2·count, y frenados (string-shot) llegan a menos. Parte pisada medida
+          // con 8 perseguidores (banco de pruebas 2026-10-18): MINE_ON · (1 − frenado).
+          const each = cnt * per * MINE_ON * (1 - (m.slow || 0)) / ch.length;
+          for (const j of ch) for (let k = 0; k < N; k++) {
+            if (Math.hypot(foes[k].x - foes[j].x, foes[k].y - foes[j].y) <= R + foes[k].r) add(k, each);
+          }
+        } else {
+          // Quietos: se ponen a tu lado (a 18–46 px si son varias) y estalla la que cae junto a uno; las demás
+          // se quitan al pasar de 4 + 2·count o, si duran menos que eso, estallan solas a la mitad.
+          const expire = (4 + cnt * 2) / cnt * castEvery(pl, m) > (m.dur || 7);
+          const spots = [];
+          if (cnt === 1) spots.push([px, py]);
+          else for (let a = 0; a < 16; a++) for (const rr of [21.5, 28.5, 35.5, 42.5]) spots.push([px + Math.cos(a / 16 * 6.2832) * rr, py + Math.sin(a / 16 * 6.2832) * rr * 0.8]);
+          const each = cnt * per / spots.length;
+          for (const [x, y] of spots) {
+            let trig = -1;
+            for (let j = 0; j < N; j++) if (Math.hypot(foes[j].x - x, foes[j].y - y) <= 14 + foes[j].r) { trig = j; break; }
+            const k0 = trig >= 0 ? 1 : expire ? 0.5 : 0;
+            if (!k0) continue;
+            for (let k = 0; k < N; k++) if (Math.hypot(foes[k].x - x, foes[k].y - y) <= R + foes[k].r) add(k, each * k0, each);
+          }
+        }
+        return { w, n };
+      }
+      case 'trail': {                       // combat.js trailPatch: charcos de radio `radius` que dañan cada 0,5 s durante `dur`
+        const R = m.radius, life = m.dur || 3;
+        const gap = Math.max(R * 0.9, drySpd(pl) * castEvery(pl, m));    // corriendo: un charco cada `gap` px
+        for (let j = 0; j < N; j++) {
+          const f = foes[j];
+          if (chases(f) && dist(f) < 250) add(j, 2 * TRAIL_ON * Math.min(18, life / castEvery(pl, m), 2 * (R + f.r) / gap));
+          else if (dist(f) <= R + f.r) add(j, 2 * life / Math.max(1, Math.ceil(1 / castEvery(pl, m)) * castEvery(pl, m)));   // quieto: uno por segundo
+        }
+        return { w, n };
+      }
+      case 'orbit': {                       // combat.js orbit: elipse radius × 0,7·radius, gira `speed` rad/s; cada orbe vuelve a dar cada max(0,12, cd)
+        const a = m.radius, b = a * 0.7, ws = m.speed || 2, rh = Math.max(0.12, m.cd), s = m.size || 8, S = 72;
+        for (let j = 0; j < N; j++) {
+          const f = foes[j], dx = f.x - px, dy = f.y - py, rr = (s + f.r) ** 2;
+          let inside = 0;
+          for (let i = 0; i < S; i++) { const t = i / S * 6.2832; if ((a * Math.cos(t) - dx) ** 2 + (b * Math.sin(t) - dy) ** 2 <= rr) inside++; }
+          if (!inside) continue;
+          const tov = inside / S * 6.2832 / ws;                  // segundos encima en cada pasada
+          add(j, cnt * ws / 6.2832 * (1 + Math.floor(tov / rh)));
+        }
+        return { w, n };
+      }
+    }
+    return { w, n };
+  }
+
+  /** Pilas medias de quemadura/veneno en `H` s: `a` pilas/s en `hr` golpes/s, tope 8, se pierden a los `last` s (enemy.js:146-153). */
+  function avgStacks(a, hr, last, H) {
+    if (a <= 0 || hr <= 0) return 0;
+    if (1 / hr > last) return Math.min(8, a / hr) * last * hr;
+    const tr = 8 / a;
+    return H <= tr ? a * H / 2 : 8 * (1 - tr / (2 * H));
+  }
+
+  /**
+   * Daño por segundo de unos movimientos (un hueco) a cada enemigo de `foes` desde (px, py):
+   * golpes · dmg · atk · tipos · clima · crítico, más quemadura (1,6 · pilas · (1 + 0,06·nivel) cada 0,5 s)
+   * y veneno (1,2 % de la vida máxima · pilas + 1 cada 0,6 s) (enemy.js:255-263, combat.js hit).
+   * o.prop: contra un objeto (sin tipos, crítico ni estados: world.js damageProp). → { total, per }
+   */
+  function dpsOn(pl, moves, px, py, foes, o = {}) {
+    const N = foes.length, per = new Float64Array(N), burnA = new Float64Array(N), burnH = new Float64Array(N);
+    const poisA = new Float64Array(N), poisH = new Float64Array(N);
+    const crit = 1 + (pl.critChance || 0) * 0.5;
+    for (const m of moves) {
+      if (!m.dmg) continue;
+      const r = moveRates(pl, m, px, py, foes);
+      for (let j = 0; j < N; j++) {
+        if (!r.w[j]) continue;
+        per[j] += r.w[j] * m.dmg * pl.atk * (o.prop ? 1 : typeK(m.type, foes[j]) * crit);
+        if (m.burn) { burnA[j] += r.n[j] * m.burn; burnH[j] += r.n[j]; }
+        if (m.poison) { poisA[j] += r.n[j] * m.poison; poisH[j] += r.n[j]; }
+      }
+    }
+    let total = 0;
+    for (let j = 0; j < N; j++) {
+      if (!o.prop && (burnA[j] || poisA[j])) {
+        const f = foes[j];
+        // Horizonte: lo que tarda en caer con el golpe directo (los estados tardan en acumularse), máx. 15 s.
+        const H = o.H || U.clamp((f.hp || REF_HP) / Math.max(1, per[j]), 1, 15);
+        per[j] += 3.2 * (1 + 0.06 * (pl.level || 1)) * avgStacks(burnA[j], burnH[j], 3, H);
+        const ps = avgStacks(poisA[j], poisH[j], 4, H);
+        if (ps) per[j] += (0.012 * (f.maxHp || REF_HP) * ps + Math.min(1, 4 * poisH[j])) / 0.6;
+      }
+      total += per[j];
+    }
+    return { total, per };
+  }
+
+  /** Un enemigo (o el de referencia) puesto a `d` px delante de ti, para el modelo. */
+  const proxy = (e, d) => ({ x: d, y: 0, r: e ? e.r || REF_R : REF_R, hp: e ? e.hp : REF_HP, maxHp: e ? e.maxHp : REF_HP,
+    types: e ? e.types : null, behavior: e ? e.behavior : 'chase', spd: e ? e.spd || 0 : 60, burn: e && e.burn, poison: e && e.poison, slow: e && e.slow });
+
+  /** 10 enemigos de referencia repartidos en 250 px que te persiguen (como el banco de pruebas). */
+  const REF_GROUP = Array.from({ length: 10 }, (_, i) => ({ x: Math.cos(i * 2.39996) * (60 + 19 * i), y: Math.sin(i * 2.39996) * (60 + 19 * i),
+    r: REF_R, hp: REF_HP, maxHp: REF_HP, types: null, behavior: 'chase', spd: 60 }));
+  /** Daño por segundo de referencia de un movimiento: a un blanco y a un grupo de 10 (para las cartas y Jev). */
+  function refDps(pl, m) {
+    if (!m || !m.dmg || m.kind === 'buff') return { one: 0, group: 0 };
+    return { one: moveDps(pl, m, null), group: dpsOn(pl, [m], 0, 0, REF_GROUP).total };
+  }
+
+  // Distancias al blanco que se prueban: la de combate y más cerca, hasta tocarse (los que te persiguen
+  // llegan a tu lado: radios sumados, combat.js resolve). Hace falta: un abanico par (Ascuas nv. 2–4: ±spread)
+  // deja un hueco en el centro y a 200 px no le da a uno solo (medido); dos hojas/huesos (bumerán ±spread,
+  // combat.js:212-224) sólo le dan a uno pegado a ti.
+  const TRY_D = (m, touch) => [engageDist(m), 120, 60, touch];
+
+  /** Daño por segundo de un movimiento contra un enemigo, a la mejor de esas distancias. */
   function moveDps(pl, m, e) {
-    const sh = (SHAPE[m.kind] || SHAPE.buff)(m);
-    if (!sh[0] || !m.dmg) return 0;
-    const cd = m.kind === 'orbit' ? Math.max(0.12, m.cd) : Math.max(0.12, m.cd * pl.cdMul);
-    return (m.dmg * pl.atk * sh[0] / cd) * (e ? typeK(m.type, e) : 1) * (1 + pl.critChance * 0.5);
+    if (!m.dmg || m.kind === 'buff') return 0;
+    let best = 0;
+    for (const d of TRY_D(m, (pl.r || 16) + (e && e.r || REF_R))) best = Math.max(best, dpsOn(pl, [m], 0, 0, [proxy(e, d)]).total);
+    return best;
   }
 
   // ---------------- conocimiento: enemigos ----------------
@@ -177,23 +500,38 @@ G.Tactics = (() => {
     }
     enemies.sort((a, b) => a.d - b.d);
 
-    // Huecos: daño por segundo contra lo que hay cerca (pesado por cercanía).
+    // Huecos: daño por segundo al grupo de alrededor (los de < 250 px; si no hay, el más cercano),
+    // colocándote a su distancia de combate del más cercano (lo que hará la táctica de pelear).
+    const group = enemies.filter(x => x.d <= 250);
+    if (!group.length && enemies.length) group.push(enemies[0]);
+    const foes = group.map(x => x.e);
     const slots = pl.slots.map((g, i) => {
-      let dps = 0, wsum = 0, kSum = 0;
+      let kSum = 0, wsum = 0;
       const main = g[0];
-      for (const x of enemies) {
-        const w = 1 / (1 + x.d / 180);
-        let v = 0;
-        for (const m of g) v += moveDps(pl, m, x.e);
-        dps += v * w; wsum += w; kSum += (main ? typeK(main.type, x.e) : 1) * w;
-      }
+      for (const x of enemies) { const w = 1 / (1 + x.d / 180); kSum += (main ? typeK(main.type, x.e) : 1) * w; wsum += w; }
+      // baseDps: ¿hace daño? (a uno; si a uno no le da, como Hoja Afilada con 2 hojas, a un grupo).
       let base = 0;
-      for (const m of g) base += moveDps(pl, m, null);
-      const area = g.some(m => (SHAPE[m.kind] || SHAPE.buff)(m)[1]);
+      for (const m of g) { const r = refDps(pl, m); base += r.one || r.group / 10; }
+      let dps = base, keep = main ? engageDist(main) : 220;
+      if (foes.length && main) {
+        // Desde la distancia de combate del más cercano o más cerca (los enemigos se te acercan): la mejor.
+        // Ponerse más cerca a propósito sólo si a la distancia de combate casi no le das (< 25 % de lo mejor,
+        // p. ej. Hoja Afilada con 2 hojas: sólo da pegado). Acercarse siempre que diera algo más se probó el
+        // 2026-10-18 y la supervivencia en kite bajó.
+        const tg = group[0];
+        const tries = TRY_D(main, (pl.r || 16) + (tg.e.r || REF_R)).map(d => {
+          const k = tg.d > d ? (tg.d - d) / tg.d : 0;
+          return [d, dpsOn(pl, g, pl.x + (tg.e.x - pl.x) * k, pl.y + (tg.e.y - pl.y) * k, foes).total];
+        });
+        dps = Math.max(...tries.map(t => t[1]));
+        // (la más lejana que da ≥ 75 % de lo mejor: cuanto más lejos, menos golpes recibes)
+        if (tries[0][1] < dps * 0.25) keep = tries.filter(t => t[1] >= dps * 0.75).sort((a, b) => b[0] - a[0])[0][0];
+      }
+      const area = g.some(m => AREA.includes(m.kind));
       return {
         index: i, moves: g, main,
-        dps: wsum ? dps / wsum : base, baseDps: base, typeK: wsum ? kSum / wsum : 1, area,
-        range: main ? hitRange(main) : 0, keep: main ? engageDist(main) : 220,
+        dps, baseDps: base, typeK: wsum ? kSum / wsum : 1, area,
+        range: main ? hitRange(main) : 0, keep,
         melee: g.some(m => m.kind === 'melee' || m.kind === 'aura' || m.kind === 'orbit'),
         orbit: g.some(m => m.kind === 'orbit')
       };
@@ -282,14 +620,20 @@ G.Tactics = (() => {
     return false;
   }
 
-  /** Daño por segundo de un hueco contra un objeto (sin tipos, clima ni crítico). aimFree: el apuntado va al objeto. */
-  function propDps(pl, slot, aimFree) {
+  /** A qué distancia del objeto te pones para darle con m (orbitSpot / standSpot / dentro del aura). */
+  function propDist(pl, m, p) {
+    if (m.kind === 'orbit') return m.radius;
+    if (m.kind === 'aura') return m.radius * 0.5;
+    const hi = propBand(m, p)[1], minD = pl.r + p.r + 4;
+    return BALLISTIC.includes(m.kind) ? Math.max(minD, Math.min(hi, 150) * 0.75) : Math.max(minD, hi - 14);
+  }
+
+  /** Daño por segundo de un hueco contra el objeto p (sin tipos, clima, crítico ni estados). aimFree: el apuntado va al objeto. */
+  function propDps(pl, slot, aimFree, p) {
     let v = 0, best = null, bv = 0;
     for (const m of slot.moves) {
       if (!m.dmg || !(PROP_ALWAYS.includes(m.kind) || (aimFree && PROP_AIMED.includes(m.kind)))) continue;
-      const sh = (SHAPE[m.kind] || SHAPE.buff)(m);
-      const cd = m.kind === 'orbit' ? Math.max(0.12, m.cd) : Math.max(0.12, m.cd * pl.cdMul);
-      const x = m.dmg * pl.atk * sh[0] / cd;
+      const x = dpsOn(pl, [m], 0, 0, [{ x: propDist(pl, m, p), y: 0, r: p.r, hp: p.hp, maxHp: p.hp }], { prop: true }).total;
       v += x;
       if (x > bv) { bv = x; best = m; }
     }
@@ -1079,7 +1423,7 @@ G.Tactics = (() => {
       for (const b of F.breakables) {
         const p = b.p, aimFree = !enemyWithin(pl.x, pl.y, 520) && !enemyWithin(p.x, p.y, 520);
         for (const s of slots) {
-          const pd = propDps(pl, s, aimFree);
+          const pd = propDps(pl, s, aimFree, p);
           if (!pd.move || pd.dps <= 0) continue;
           // Dónde ponerse: los que se lanzan al blanco necesitan un sitio desde el que el objeto sea el
           // más cercano (el apuntado) y, los que vuelan, sin árbol ni pared en medio (combat.js resolve).
@@ -1293,5 +1637,5 @@ G.Tactics = (() => {
 
   // (El resumen de reglas que lee Jev está en el servidor: mcp/src/jev-core.js GAME_RULES.)
 
-  return { facts, candidates, hitRange, engageDist, moveDps, threatOf, targetFor, drySpd, dangerOf, escapeCandidate, addDanger, simulate };
+  return { facts, candidates, hitRange, engageDist, moveDps, dpsOn, refDps, threatOf, targetFor, drySpd, dangerOf, escapeCandidate, addDanger, simulate };
 })();

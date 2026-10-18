@@ -595,3 +595,21 @@ describe('danger numbers and rare targets', () => {
     assert.deepEqual(dangerOf({ candidates: [{ id: 'roam', numbers: {} }] }), {}, 'no danger numbers -> no overview');
   });
 });
+
+describe('slot question with the page\'s damage per slot', () => {
+  test('stats.dps_slotN survives sanitizeState and is shown in which_slot', async () => {
+    const { slotQuestion } = await import('../src/jev-core.js');
+    const { sanitizeState } = await import('../src/jev-http.js');
+    const stats = { spd: 116, atk: 1, cdMul: 1, crit: 0, reduction: 0, regen: 0, magnet: 78, xpMul: 1, bosses: 0, coins: 0, bonds: 0, rerolls: 1, slots: 2, maxMoves: 4, active: 0, dps_slot1: 41, dps_slot2: 180 };
+    const state = sanitizeState({ phase: 'playing', player: { hp: 50, maxHp: 50, active: 0, stats, slots: [
+      { index: 0, moves: [{ id: 'fire-spin', name: 'Giro Fuego', lv: 2, type: 'fire', kind: 'orbit', radius: 62, cd: 0.3 }] },
+      { index: 1, moves: [{ id: 'flamethrower', name: 'Lanzallamas', lv: 3, type: 'fire', kind: 'cone', cd: 0.7 }] },
+    ] } });
+    assert.equal(Object.keys(state.player.stats).length, 17, 'no stat lost');
+    const q = slotQuestion(state);
+    assert.match(q.criteria['0'], /Giro Fuego .*\(estimated 41 damage\/s to the nearby enemies\)$/);
+    assert.match(q.criteria['1'], /Lanzallamas .*\(estimated 180 damage\/s to the nearby enemies\)$/);
+    const plain = slotQuestion(sanitizeState({ player: { slots: state.player.slots } }));
+    assert.doesNotMatch(plain.criteria['0'], /estimated/, 'without the number, no claim');
+  });
+});

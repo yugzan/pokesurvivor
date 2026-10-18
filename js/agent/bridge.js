@@ -55,7 +55,7 @@ G.Agent = (() => {
 
   function current() {
     if (lv && lvOpen()) {
-      return { kind: 'levelup', rerolls: rerollsLeft(), cards: lv.list.map((c, i) => ({ index: i, key: c.key, type: c.type, title: c.title, desc: c.desc, tag: c.tag })) };
+      return { kind: 'levelup', rerolls: rerollsLeft(), cards: lv.list.map((c, i) => ({ index: i, key: c.key, type: c.type, title: c.title, desc: withDps(c), tag: c.tag })) };
     }
     if (bond && G.UI.isOpen('scr-bond')) {
       const { opt } = bond, step2 = bondStep2(), list = bondList();
@@ -79,6 +79,28 @@ G.Agent = (() => {
       };
     }
     return null;
+  }
+
+  /**
+   * Carta de movimiento (nuevo, mejora, evolución): se le añade el daño por segundo que calcula la IA
+   * (G.Tactics.refDps: a un blanco y a 10 repartidos) antes → después. Sólo si cabe en 200 caracteres
+   * (mcp/src/jev-http.js sanitizeChoice corta ahí).
+   */
+  function withDps(c) {
+    const desc = c.desc || '', pl = G.Game.player;
+    try {
+      const [kind, id] = String(c.key || '').split(':');
+      const cur = pl && pl.moves.find(m => m.id === id);
+      let next = null;
+      if (kind === 'new' && G.Moves.BY_ID[id]) next = G.Moves.instance(id, 1);
+      else if (kind === 'up' && cur) { next = Object.assign({}, cur); G.Moves.levelUp(next); }
+      else if (kind === 'evo' && cur) { next = Object.assign({}, cur); G.Moves.evolve(next); }
+      if (!next || !next.dmg) return desc;
+      const a = kind !== 'new' ? G.Tactics.refDps(pl, cur) : null, b = G.Tactics.refDps(pl, next);
+      const f = (x, y) => (x != null ? Math.round(x) + '→' : '') + Math.round(y);
+      const tail = ` [IA: daño/s a 1 enemigo ${f(a ? a.one : null, b.one)}, a 10 ${f(a ? a.group : null, b.group)}]`;
+      return desc.length + tail.length <= 200 ? desc + tail : desc;
+    } catch (e) { return desc; }
   }
 
   function rerollsLeft() {
@@ -164,7 +186,8 @@ G.Agent = (() => {
         stats: {
           spd: r1(pl.spd), atk: r1(pl.atk), cdMul: r1(pl.cdMul * 100) / 100, crit: r1(pl.critChance * 100) / 100,
           reduction: r1(pl.reduction * 100) / 100, regen: r1(pl.regen), magnet: Math.round(pl.magnet), xpMul: r1(pl.xpMul * 100) / 100,
-          bosses: pl.bosses, coins: pl.coins, bonds: pl.bonds, rerolls: rerollsLeft(), slots: pl.slots.length, maxMoves: pl.maxMoves, active: pl.active
+          bosses: pl.bosses, coins: pl.coins, bonds: pl.bonds, rerolls: rerollsLeft(), slots: pl.slots.length, maxMoves: pl.maxMoves, active: pl.active,
+          ...slotDps(pl, 5)
         }
       },
       enemies: near(G.EnemyMgr.all(), 40, (dx, dy, dist, e) => ({ dx, dy, dist, hp: Math.round(e.hp), maxHp: Math.round(e.maxHp), boss: !!e.boss, flying: !!e.flying, name: e.name, types: e.types || [] })),
@@ -263,6 +286,20 @@ G.Agent = (() => {
       plan: G.Autopilot.mode !== 'off' && plan ? plan.id : null,
       candidates: list.map(c => ({ id: c.id, kind: c.kind, label: c.label, score: r1(c.score), numbers: c.numbers }))
     };
+  }
+
+  /**
+   * Daño por segundo de cada hueco al grupo de alrededor según la IA (G.Tactics.facts), como
+   * stats.dps_slot1, dps_slot2... (como mucho `room`: mcp/src/jev-http.js deja 20 claves en stats).
+   */
+  function slotDps(pl, room) {
+    const o = {};
+    try {
+      // Los del piloto si son de hace < 0,5 s (no se calculan dos veces).
+      const ap = G.Autopilot, F = ap && ap.facts && ap.facts.pl === pl && performance.now() - ap.factsAt < 500 ? ap.facts : G.Tactics.facts(pl);
+      for (const s of F.slots.slice(0, room)) o['dps_slot' + (s.index + 1)] = Math.round(s.dps);
+    } catch (e) { /* sin datos */ }
+    return o;
   }
 
   /** Un movimiento de un hueco: tipo, forma de atacar (projectile, beam, melee...), alcance y recarga. */

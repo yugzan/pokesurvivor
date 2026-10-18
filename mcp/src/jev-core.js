@@ -148,13 +148,19 @@ export function canSwitchSlot(state) {
 
 export function slotQuestion(state) {
   const criteria = {};
-  for (const g of slotsOf(state?.player)) criteria[String(g.index)] = g.moves.map(moveText).join(' + ');
+  // Daño por segundo al grupo de alrededor que calcula la página (js/agent/tactics.js, stats.dps_slotN).
+  const stats = state?.player?.stats || {};
+  for (const g of slotsOf(state?.player)) {
+    const dps = stats['dps_slot' + (g.index + 1)];
+    criteria[String(g.index)] = g.moves.map(moveText).join(' + ') + (typeof dps === 'number' ? ` (estimated ${Math.round(dps)} damage/s to the nearby enemies)` : '');
+  }
   return {
     type: 'choice',
     instructions: 'Only the moves in the ACTIVE slot are cast (automatically); the player can switch slots at any time. ' +
       'Which slot should be active right now to deal the most damage and stay safe, given the enemies\' types (type matchups: e.g. water beats fire, ' +
       'electric beats water, fire beats grass/bug/ice) and distances in `state`, and each move\'s type, attack shape and range? ' +
-      'Each option is a slot number; its description lists the move(s) in that slot (names in Spanish).',
+      'Each option is a slot number; its description lists the move(s) in that slot (names in Spanish) and, when known, the damage per second ' +
+      'the game computes for it against the enemies around the player (hits counted from each move\'s real shape and range, burn and poison included).',
     criteria,
   };
 }
