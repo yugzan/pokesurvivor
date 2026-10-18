@@ -804,7 +804,12 @@
       if (died) corpses.push(e);
     }
 
-    function key(cx, cy) { return cx * 73856093 ^ cy * 19349663; }
+    // Clave única por celda. La de antes (cx * 73856093 ^ cy * 19349663) repetía
+    // clave en celdas simétricas respecto al origen, p. ej. (1,1) y (-1,-1): cerca
+    // del punto de salida (0,0) un enemigo salía dos veces en queryCircle y los
+    // ataques de área le pegaban dos veces (docs/REJILLA-ENEMIGOS.md).
+    // Exacta mientras |cy| < 2^19 celdas (unos 27 millones de px).
+    function key(cx, cy) { return cx * 1048576 + cy; }
 
     function rebuildGrid() {
       grid.clear();

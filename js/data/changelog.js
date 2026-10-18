@@ -6,6 +6,10 @@
  * Cada línea en español y en inglés.
  */
 G.CHANGELOG = [
+  { d: '2026-10-19', title: ['Daño doble cerca del inicio', 'Double damage near the start'], fix: [
+    ['Cerca del punto de salida, los ataques de área (cuerpo a cuerpo, rayos, auras, embestidas y explosiones) podían golpear dos veces al mismo enemigo. Ahora golpean una vez, como en el resto del mapa.',
+     'Near the starting point, area attacks (melee, beams, auras, dashes and explosions) could hit the same enemy twice. Now they hit once, like everywhere else on the map.']
+  ] },
   { d: '2026-10-15', title: ['Traducción al chino tradicional', 'Traditional Chinese translation'], new: [
     ['El juego ahora incluye chino tradicional: menús, movimientos, objetos, misiones, avisos y nombres de los 966 Pokémon. Se puede cambiar el idioma en Ajustes > Gráficos.',
      'The game now includes Traditional Chinese: menus, moves, items, missions, messages and names for all 966 Pokémon. Change the language in Settings > Graphics.']
