@@ -76,8 +76,6 @@ G.GachaUI = (() => {
     G.UI.refreshCoins();
   }
 
-  const wait = ms => new Promise(r => setTimeout(r, ms));
-
   async function pull(n, use = 't1') {
     if (busy) return;
     const res = G.Gacha.pull(G.DB.save, n, gen, use);
@@ -93,8 +91,9 @@ G.GachaUI = (() => {
     slot.style.display = '';
     fx.classList.remove('hidden');
 
-    // La tragaperras (ui/slots.js) y luego las cartas.
-    await G.Slots.play(slot, res);
+    // Tirada de 1: la tragaperras (ui/slots.js) y luego la carta.
+    // Tirada de 10: sin tragaperras ni cartas de una en una; salen las 10 a la vez.
+    if (n === 1) await G.Slots.play(slot, res);
     G.Audio.sfx('burst', { rarity: best });
     slot.style.display = 'none';
 
@@ -110,9 +109,8 @@ G.GachaUI = (() => {
         : `Repetido · <span class="coin"></span> +${r.refund}`;
       c.insertAdjacentHTML('beforeend', `<b>${r.shiny ? G.Icons.html('shiny', 12) + ' ' : ''}${mon.name}</b><div class="tag">${tag}</div>`);
       out.appendChild(c);
-      G.Audio.sfx('reveal', { rarity: r.rarity });
-      await wait(n === 10 ? 150 : 0);
     }
+    if (n === 1) G.Audio.sfx('reveal', { rarity: res[0].rarity });
     $('pull-close').classList.remove('hidden');
     busy = false;
   }
