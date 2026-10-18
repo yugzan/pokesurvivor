@@ -6,6 +6,10 @@
  * Cada línea en español y en inglés.
  */
 G.CHANGELOG = [
+  { d: '2026-10-19', title: ['Gacha ×10 al instante', 'Instant ×10 gacha'], chg: [
+    ['Gacha: la tirada de 10 ya no pasa por la tragaperras ni saca las cartas de una en una; ves las 10 a la vez nada más pulsar. La de 1 sigue con su animación.',
+     'Gacha: the 10-pull no longer goes through the slot machine or reveals the cards one by one; you see all 10 at once as soon as you tap. The single pull keeps its animation.']
+  ] },
   { d: '2026-10-16', title: ['Flechas al botín lejano', 'Arrows to far-off loot'], new: [
     ['Los objetos y los tickets que se quedan fuera de la pantalla tienen ahora una flechita en el borde con su icono y a cuántos metros están (los 4 más cercanos), para que no se te pierdan en el mapa.',
      'Items and tickets left off-screen now get a small arrow at the edge with their icon and how many metres away they are (the 4 closest), so you don’t lose them on the map.'],
