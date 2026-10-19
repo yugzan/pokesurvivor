@@ -13,7 +13,8 @@
  * Reglas usadas (archivo:línea en la versión del 2026-10-15):
  *   - sólo ataca el hueco activo; cambiarlo borra los orbes (player.js setActive, combat.js tick)
  *   - alcance para lanzar: combat.js reach(); el cuerpo a cuerpo golpea a radius + radio del enemigo
- *   - daño = dmg · atk · tipos (types.js, ×1.6 / ×0.6 / ×0.3, tope 0.3–2.4) · clima (weather.js)
+ *   - daño = dmg · atkFor(m) (Ataque o At. Esp. según el movimiento, stats.js) · Defensa o Def. Esp. del
+ *     enemigo (G.Stats.taken) · tipos (types.js, ×1.6 / ×0.6 / ×0.3, tope 0.3–2.4) · clima (weather.js)
  *   - contacto: e.dmg cada 0.55 s como mucho (combat.js resolve); con cuerpo a cuerpo activo, −25 %
  *   - disparos enemigos 190 px/s (enemy.js shoot); los que guardan distancia: enemy.js keepsDistance
  *   - trampas: veneno / pegajosa / explosiva en 74 px; saltan al pisarlas un enemigo que no vuela
@@ -412,7 +413,7 @@ G.Tactics = (() => {
 
   /**
    * Daño por segundo de unos movimientos (un hueco) a cada enemigo de `foes` desde (px, py):
-   * golpes · dmg · atk · tipos · clima · crítico, más quemadura (1,6 · pilas · (1 + 0,06·nivel) cada 0,5 s)
+   * golpes · dmg · atkFor · defensa del enemigo · tipos · clima · crítico, más quemadura (1,6 · pilas · (1 + 0,06·nivel) cada 0,5 s)
    * y veneno (1,2 % de la vida máxima · pilas + 1 cada 0,6 s) (enemy.js:255-263, combat.js hit).
    * o.prop: contra un objeto (sin tipos, crítico ni estados: world.js damageProp). → { total, per }
    */
@@ -425,7 +426,7 @@ G.Tactics = (() => {
       const r = moveRates(pl, m, px, py, foes);
       for (let j = 0; j < N; j++) {
         if (!r.w[j]) continue;
-        per[j] += r.w[j] * m.dmg * pl.atk * (o.prop ? 1 : typeK(m.type, foes[j]) * crit);
+        per[j] += r.w[j] * m.dmg * pl.atkFor(m) * (o.prop ? 1 : typeK(m.type, foes[j]) * G.Stats.taken(foes[j].mon, m.cat) * crit);
         if (m.burn) { burnA[j] += r.n[j] * m.burn; burnH[j] += r.n[j]; }
         if (m.poison) { poisA[j] += r.n[j] * m.poison; poisH[j] += r.n[j]; }
       }
@@ -447,7 +448,7 @@ G.Tactics = (() => {
 
   /** Un enemigo (o el de referencia) puesto a `d` px delante de ti, para el modelo. */
   const proxy = (e, d) => ({ x: d, y: 0, r: e ? e.r || REF_R : REF_R, hp: e ? e.hp : REF_HP, maxHp: e ? e.maxHp : REF_HP,
-    types: e ? e.types : null, behavior: e ? e.behavior : 'chase', spd: e ? e.spd || 0 : 60, burn: e && e.burn, poison: e && e.poison, slow: e && e.slow });
+    types: e ? e.types : null, mon: e ? e.mon : null, behavior: e ? e.behavior : 'chase', spd: e ? e.spd || 0 : 60, burn: e && e.burn, poison: e && e.poison, slow: e && e.slow });
 
   /** 10 enemigos de referencia repartidos en 250 px que te persiguen (como el banco de pruebas). */
   const REF_GROUP = Array.from({ length: 10 }, (_, i) => ({ x: Math.cos(i * 2.39996) * (60 + 19 * i), y: Math.sin(i * 2.39996) * (60 + 19 * i),
@@ -476,7 +477,7 @@ G.Tactics = (() => {
 
   /** Amenaza de un enemigo: daño por segundo que te puede hacer y si lo puedes dejar atrás. */
   function threatOf(pl, e) {
-    const tk = G.Types.mult(e.atkType, pl.mon.types);
+    const tk = G.Types.mult(e.atkType, pl.mon.types) * G.Stats.taken(pl.mon, e.cat);   // tipo y tu Defensa / Def. Esp.
     const contact = (e.dmg / 0.55) * tk * (1 - pl.reduction);
     const keeper = KEEPERS.includes(e.behavior);
     const shot = e.def && e.def.shotCd ? (e.def.shotDmg || 10) * (e.dmg / (e.def.dmg || e.dmg || 1)) / e.def.shotCd * tk : 0;
@@ -508,7 +509,7 @@ G.Tactics = (() => {
     const slots = pl.slots.map((g, i) => {
       let kSum = 0, wsum = 0;
       const main = g[0];
-      for (const x of enemies) { const w = 1 / (1 + x.d / 180); kSum += (main ? typeK(main.type, x.e) : 1) * w; wsum += w; }
+      for (const x of enemies) { const w = 1 / (1 + x.d / 180); kSum += (main ? typeK(main.type, x.e) * G.Stats.taken(x.e.mon, main.cat) : 1) * w; wsum += w; }
       // baseDps: ¿hace daño? (a uno; si a uno no le da, como Hoja Afilada con 2 hojas, a un grupo).
       let base = 0;
       for (const m of g) { const r = refDps(pl, m); base += r.one || r.group / 10; }
@@ -715,7 +716,7 @@ G.Tactics = (() => {
     const now = performance.now();
     if (legCache && now - legAt < 5000) return legCache;
     const beaten = (G.DB.save && G.DB.save.legends) || {};
-    legCache = G.DEX.filter(p => p.leg && G.SPRITE_META[p.dex]).map(p => ({ types: p.types, w: beaten[p.dex] ? 1 : 4 }));
+    legCache = G.DEX.filter(p => p.leg && G.SPRITE_META[p.dex]).map(p => ({ types: p.types, cat: G.Stats.sideOf(p), w: beaten[p.dex] ? 1 : 4 }));
     legAt = now;
     return legCache;
   }
@@ -793,11 +794,12 @@ G.Tactics = (() => {
   const INVULN = 0.45, TOUCH_CD = 0.55, SIM_DT = 0.1, SIM_H = 3, SHOT_SPD = 190;
   const SHOOTERS = ['ranged', 'fan', 'beamer', 'zoner'];
 
-  /** Lo que te quita un golpe (player.js hurt). */
-  function taken(pl, amount, type, pure) {
+  /** Lo que te quita un golpe (player.js hurt); cat: físico o especial, se para con tu Defensa o Def. Esp. */
+  function taken(pl, amount, type, pure, cat) {
     let a = amount;
     if (type) a *= G.Types.mult(type, pl.mon.types) * G.Weather.mult(type);
     if (pure) return Math.max(1, a);
+    a *= G.Stats.taken(pl.mon, cat);
     const close = pl.activeGroup().some(m => m.kind === 'melee') ? 0.75 : 1;
     return Math.max(1, a * (1 - pl.reduction) * close);
   }
@@ -819,7 +821,7 @@ G.Tactics = (() => {
       foes.push({
         id: e.id, x: e.x, y: e.y, r: e.r || 10, hp: e.hp, boss: !!e.boss,
         es: Math.max(10, e.spd * (1 - (e.slow || 0)) * G.Weather.speedFor(e.types)),
-        hit: taken(pl, e.dmg, e.atkType), raw: e.dmg, type: e.atkType, beh: e.behavior,
+        hit: taken(pl, e.dmg, e.atkType, false, e.cat), raw: e.dmg, type: e.atkType, cat: e.cat, beh: e.behavior,
         keeper: KEEPERS.includes(e.behavior) && !e.boss,
         range: (e.def && e.def.range) || 200, shotCd: (e.def && e.def.shotCd) || 2, shotT: e.shotCd || 0, shot,
         fanN: (e.def && e.def.fanN) || 5,
@@ -833,14 +835,14 @@ G.Tactics = (() => {
     const shots = [];
     for (const s of G.Projectiles.all()) {
       if (s.friendly || s.dead || (s.x - pl.x) ** 2 + (s.y - pl.y) ** 2 > 520 * 520) continue;
-      shots.push({ x: s.x, y: s.y, vx: s.vx || 0, vy: s.vy || 0, r: s.r || 7, t0: 0, hit: taken(pl, s.dmg || 10, s.mtype), stop: shotStop(s.x, s.y, s.vx || 0, s.vy || 0, s.r || 7, SIM_H) });
+      shots.push({ x: s.x, y: s.y, vx: s.vx || 0, vy: s.vy || 0, r: s.r || 7, t0: 0, hit: taken(pl, s.dmg || 10, s.mtype, false, s.cat), stop: shotStop(s.x, s.y, s.vx || 0, s.vy || 0, s.r || 7, SIM_H) });
     }
     const zones = [];
     for (const h of (G.Hazards ? G.Hazards.all : [])) {
       if (h.hit) continue;
       const at = Math.max(0, h.delay - h.t);
       if (at > SIM_H) continue;
-      zones.push({ h, at, hit: taken(pl, h.pct ? Math.max(h.dmg, pl.maxHp * h.pct) : h.dmg, h.type, !!h.pure) });
+      zones.push({ h, at, hit: taken(pl, h.pct ? Math.max(h.dmg, pl.maxHp * h.pct) : h.dmg, h.type, !!h.pure, h.cat) });
     }
     return (F._sim = { foes, shots, zones });
   }
@@ -868,13 +870,13 @@ G.Tactics = (() => {
       if (hp <= 0) { if (sash) { sash = false; hp = 1; inv = t + 1.2; } else if (ko == null) ko = Math.round(t * 10) / 10; }
     };
     const fire = (f, ux, uy, t) => {
-      if (f.beh === 'beamer') zones.push({ h: { kind: 'beam', x: f.x, y: f.y, angle: Math.atan2(uy, ux), len: 360, w: 22 }, at: t + 1.0, hit: taken(pl, f.shot * 1.05, f.type) });
-      else if (f.beh === 'zoner') zones.push({ h: { kind: 'zone', x: px, y: py, r: 44 }, at: t + 1.2, hit: taken(pl, f.shot * 0.95, f.type) });
+      if (f.beh === 'beamer') zones.push({ h: { kind: 'beam', x: f.x, y: f.y, angle: Math.atan2(uy, ux), len: 360, w: 22 }, at: t + 1.0, hit: taken(pl, f.shot * 1.05, f.type, false, f.cat) });
+      else if (f.beh === 'zoner') zones.push({ h: { kind: 'zone', x: px, y: py, r: 44 }, at: t + 1.2, hit: taken(pl, f.shot * 0.95, f.type, false, f.cat) });
       else {
         const n = f.beh === 'fan' ? f.fanN : 1, spread = n === 3 ? 0.6 : 0.9, k = f.beh === 'fan' ? 0.65 : 1, base = Math.atan2(uy, ux);
         for (let i = 0; i < n; i++) {
           const a = base + (n === 1 ? 0 : (i / (n - 1) - 0.5) * spread), vx = Math.cos(a) * SHOT_SPD, vy = Math.sin(a) * SHOT_SPD;
-          shots.push({ x: f.x, y: f.y, vx, vy, r: 7, t0: t, hit: taken(pl, f.shot * k, f.type), stop: t + shotStop(f.x, f.y, vx, vy, 7, Math.max(0.1, H - t)) });
+          shots.push({ x: f.x, y: f.y, vx, vy, r: 7, t0: t, hit: taken(pl, f.shot * k, f.type, false, f.cat), stop: t + shotStop(f.x, f.y, vx, vy, 7, Math.max(0.1, H - t)) });
         }
       }
     };
@@ -910,7 +912,7 @@ G.Tactics = (() => {
         }
         if (f.beh === 'bomber' && d < f.r + pl.r + 26) {         // prende la mecha: estalla en 1 s, 62 px, daño ×1,4
           f.fuse = true; f.pt = 1.0;
-          zones.push({ h: { kind: 'zone', x: f.x, y: f.y, r: 62 }, at: t + 1.0, hit: taken(pl, f.raw * 1.4, f.type) });
+          zones.push({ h: { kind: 'zone', x: f.x, y: f.y, r: 62 }, at: t + 1.0, hit: taken(pl, f.raw * 1.4, f.type, false, f.cat) });
           continue;
         }
         let v = f.es;
@@ -1344,7 +1346,7 @@ G.Tactics = (() => {
           // Lo que te quita cada golpe del legendario (contacto 36 + t/20, rift.js:143-149), con su tipo
           // más probable contra los tuyos, tu defensa y el −25 % con cuerpo a cuerpo (player.js hurt).
           let tk = 0;
-          for (const p of pool) tk += G.Types.mult(p.types[0], pl.mon.types) * p.w / W;
+          for (const p of pool) tk += G.Types.mult(p.types[0], pl.mon.types) * G.Stats.taken(pl.mon, p.cat) * p.w / W;
           const legHit = Math.max(1, Math.round(taken(pl, 36 + t / 20, null) * tk));
           const others = per.slice(1).map(x => `slot ${x.s.index + 1}: ${Math.round(x.dps)} dps x${r1(x.k)}`).join('; ');
           out.push({
@@ -1521,7 +1523,7 @@ G.Tactics = (() => {
     if (G.Rift.inArena || !ranked.length) return;
     const spd = Math.max(30, drySpd(pl));
     const bestSlot = e => ranked.map(s => ({ s, dps: slotDpsVs(pl, s, e) })).sort((a, b) => b.dps - a.dps)[0];
-    const hitTo = e => Math.round(taken(pl, e.dmg, e.atkType));
+    const hitTo = e => Math.round(taken(pl, e.dmg, e.atkType, false, e.cat));
 
     // Duende del tesoro (events.js:104-125): 92 px/s, huye en zigzag (a todo correr si estás a <300 px,
     // si no al 35 %; el zigzag de ±0,7 rad deja ~88 % de avance, enemy.js:283-296) y se va a los 15 s

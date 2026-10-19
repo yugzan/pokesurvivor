@@ -63,6 +63,45 @@ G.LoginUI = (() => {
     $('scr-recover').classList.remove('hidden');
   }
 
+  /*
+   * Avisos de una actualización: cada uno sale una vez por navegador, la
+   * primera vez que se entra al menú después de subirla; si hay varios,
+   * uno tras otro. Para uno nuevo, se añade aquí con su propia clave.
+   */
+  const cloud = () => G.DB.mode === 'cloud' && !G.DB.guest;
+  const NOTES = [
+    { key: 'ps.savenote.1', when: cloud,              // botón Guardar (18-10-2026)
+      title: ['Importante: guarda tu partida', 'Important: save your game'],
+      body: ['<p>Debido a problemas con el guardado, a partir de ahora la partida se guarda en la nube automáticamente <b>cada 10 minutos</b>.</p>' +
+             '<p>Hemos incorporado un botón <b class="gold">Guardar</b> arriba a la derecha. Úsalo antes de cerrar el juego o de cambiar de aparato: <b>es muy importante para no perder tu partida</b>.</p>',
+             '<p>Because of problems with saving, from now on your game is saved to the cloud automatically <b>every 10 minutes</b>.</p>' +
+             '<p>We have added a <b class="gold">Save</b> button at the top right. Use it before closing the game or switching devices: <b>it is very important so you don’t lose your progress</b>.</p>'] },
+    { key: 'ps.ranknote.1', when: () => cloud() && ((G.DB.save.stats || {}).runs || 0) > 0,   // rankings desde cero (18-10-2026)
+      title: ['Los rankings se han reiniciado', 'The leaderboards have been reset'],
+      body: ['<p>Hemos ajustado la <b>Sentencia de Arceus</b>: huir corriendo con toda la velocidad subida y el veneno ya no sirven para aguantar para siempre.</p>' +
+             '<p>Para que todos compitáis en igualdad, <b>todos los rankings empiezan de cero</b> (hoy, semana, mes, año e histórico). ¡A por el primer puesto!</p>',
+             '<p>We have adjusted the <b>Judgment of Arceus</b>: running away with maxed-out speed and poison no longer let you last forever.</p>' +
+             '<p>So everyone competes on equal terms, <b>all leaderboards start from scratch</b> (daily, weekly, monthly, yearly and all-time). Go for first place!</p>'] }
+  ];
+  /** → true si se ha enseñado alguno. */
+  function updateNotices() {
+    const queue = NOTES.filter(n => { try { return n.when() && !localStorage.getItem(n.key); } catch (e) { return false; } });
+    if (!queue.length) return false;
+    const en = G.I18n.lang === 'en' ? 1 : 0;
+    const next = () => {
+      const n = queue.shift();
+      if (!n) { $('scr-savenote').classList.add('hidden'); return; }
+      try { localStorage.setItem(n.key, '1'); } catch (e) { /* nada */ }
+      $('savenote-title').textContent = n.title[en];
+      $('savenote-body').innerHTML = n.body[en];
+      $('savenote-ok').textContent = en ? 'Got it' : 'Entendido';
+    };
+    $('savenote-ok').onclick = next;
+    next();
+    $('scr-savenote').classList.remove('hidden');
+    return true;
+  }
+
   /** Explica dónde se guarda la partida según el modo de la base de datos. */
   function modeNote() {
     if (G.DB.mode === 'cloud') return 'Tu partida se guarda en la nube: entra desde cualquier ordenador. Como invitado no se guarda.';
@@ -82,35 +121,16 @@ G.LoginUI = (() => {
     $('btn-auth').textContent = m === 'login' ? 'Entrar' : 'Crear cuenta';
     $('f-pass').autocomplete = m === 'login' ? 'current-password' : 'new-password';
     $('login-err').textContent = '';
-    // Sólo se pregunta si quedan plazas al ir a crear cuenta (cada llamada al Worker cuenta).
-    if (m === 'register' && G.DB.mode === 'cloud' && G.Signups) G.Signups.check().then(applySignups);
-  }
-
-  /** Tope de cuentas del mes alcanzado: sin "Crear cuenta" hasta el mes siguiente. */
-  function applySignups(open) {
-    const reg = document.querySelector('#scr-login .tab[data-tab="register"]');
-    if (reg) reg.classList.toggle('hidden', !open);
-    if (!open && mode === 'register') setMode('login');
-    const note = $('signup-closed');
-    note.classList.toggle('hidden', open);
-    if (!open) note.textContent = 'Este mes se han llenado las plazas de cuentas nuevas: vuelven el 1 de ' + G.Signups.nextMonthName() +
-      '. Si ya tienes cuenta, entra normal. Si no, juega como invitado.';
-    $('btn-google').textContent = open ? 'Entrar con Google' : 'Entrar con Google (si ya tienes cuenta)';
   }
 
   function open() {
     G.UI.chrome(false);
     G.UI.show('scr-login');
-    // Abiertas: no se pregunta hasta ir a "Crear cuenta". Cerradas (con la pestaña
-    // escondida): se vuelve a preguntar (va con caché de 30 min) para reabrir a tiempo.
-    if (G.DB.mode === 'cloud' && G.Signups) {
-      if (G.Signups.closed) G.Signups.check().then(applySignups); else applySignups(true);
-    }
     if (!G.DB.storageOk) $('login-err').textContent = 'Este navegador no deja guardar datos: juega como invitado.';
     $('btn-google').classList.toggle('hidden', G.DB.mode !== 'cloud');
     $('login-mode').textContent = modeNote();
     setTimeout(() => $('f-user').focus(), 50);
   }
 
-  return { init, open, offerRecovery };
+  return { init, open, offerRecovery, updateNotices };
 })();
