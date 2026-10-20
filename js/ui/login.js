@@ -93,7 +93,10 @@ G.LoginUI = (() => {
       if (!n) { $('scr-savenote').classList.add('hidden'); return; }
       try { localStorage.setItem(n.key, '1'); } catch (e) { /* nada */ }
       $('savenote-title').textContent = n.title[en];
-      $('savenote-body').innerHTML = n.body[en];
+      // Otros idiomas: el aviso entero va traducido en su diccionario (por trozos sale raro); si falta, en inglés.
+      const other = G.I18n.lang !== 'es' && !en, body = $('savenote-body');
+      if (other) body.setAttribute('translate', 'no');
+      body.innerHTML = !other ? n.body[en] : G.I18n.has(n.body[0]) ? G.T(n.body[0]) : n.body[1];
       $('savenote-ok').textContent = en ? 'Got it' : 'Entendido';
     };
     $('savenote-ok').onclick = next;
