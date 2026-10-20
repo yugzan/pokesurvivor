@@ -177,7 +177,15 @@ G.Agent = (() => {
       player: {
         x: Math.round(pl.x), y: Math.round(pl.y), hp: Math.round(pl.hp), maxHp: Math.round(pl.maxHp),
         level: pl.level, xp: Math.round(pl.xp), xpNext: Math.round(pl.xpNext), kills: pl.kills,
-        moves: pl.moves.map(m => ({ id: m.id, name: m.name, lv: m.lvl })),
+        // maxLv, y si aún puede evolucionar: en qué, qué carta de stat lo pide y si ya la cogió
+        // (G.Moves.evoInfo sólo responde al nivel máximo; se le pregunta como si ya lo estuviera).
+        moves: pl.moves.map(m => {
+          const o = { id: m.id, name: m.name, lv: m.lvl, maxLv: m.def.maxLvl };
+          if (m.evolved) o.evolved = true;
+          const ev = G.Moves.evoInfo(Object.assign({}, m, { lvl: m.def.maxLvl }), pl.statsTaken);
+          if (ev) o.evo = { into: ev.name, needs: ev.needName, ready: ev.ready };
+          return o;
+        }),
         // Huecos (teclas 1, 2...): sólo se lanza el del hueco activo; un vínculo junta varios en uno.
         active: pl.active,
         slots: pl.slots.map((g, i) => ({ index: i, active: i === pl.active, moves: g.map(slotMove) })),

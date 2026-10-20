@@ -17,6 +17,7 @@ export const INSTRUCTIONS =
   'You play alongside a human who has the game open. Workflow: 1) ask the player for the 6-character code and call pair(code); ' +
   '2) call set_autopilot (e.g. "kite") so the character keeps moving; 3) loop: wait_for_choice -> pick the best card with choose(index) ' +
   '(use reroll if no card helps and rerolls remain); between choices, check get_state and adjust the autopilot mode and the active move (set_active_move). ' +
+  'Moves evolve: get_state player.moves shows lv/maxLv and, if it can evolve, evo {into, needs: the stat card to take once, ready}; at max level with that stat taken a gold EVOLUCIÓN card appears (big power jump), and stat cards tagged "Evoluciona <move>" unlock it. ' +
   'move(dx, dy, ms) is only a short manual override. release() hands control back to the player. Card texts are in Spanish. ' +
   'If the user has a TypeSafe Jev key (X-Jev-Key header or jev_key argument), evaluate_choices / should_reroll / suggest_strategy give ' +
   'Jev\'s probabilities for the cards and the movement mode, suggest_tactic lets Jev pick one of the tactics the page computes ' +

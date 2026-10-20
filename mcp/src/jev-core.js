@@ -11,7 +11,11 @@ export const STRATEGY_MODES = {
 };
 
 const KIND_HINT = {
-  levelup: 'This is a level-up screen: each card adds a new move, upgrades or evolves a move the player has, or improves a stat.',
+  levelup: 'This is a level-up screen: each card adds a new move, upgrades or evolves a move the player has, or improves a stat. ' +
+    'Move evolution: a move at its max level (lv N/N) EVOLVES once the player has taken, at any time this run, the stat card it needs ' +
+    '(see `player.moves`: "evolves into X at max level, needs stat card Y"); then a gold card tagged EVOLUCIÓN appears, a big power jump ' +
+    '(about x1.6-1.9 damage plus extra projectiles/area). A stat card tagged "Evoluciona <move>" is the one that unlocks that evolution, ' +
+    'and upgrading a move with an evolution toward its max level brings it closer.',
   item: 'This is a held-item screen: keep the current item or swap it for the new one.',
   bond: 'This is a bond screen: the chosen move will be cast together with others (a combo).',
 };
@@ -41,7 +45,7 @@ export function summarizeState(state, choice) {
       hp: p.hp, max_hp: p.maxHp,
       hp_percent: typeof p.hp === 'number' && p.maxHp > 0 ? Math.round((p.hp / p.maxHp) * 100) : undefined,
       level: p.level,
-      moves: Array.isArray(p.moves) ? p.moves.map((m) => `${m?.name ?? m?.id} (lv ${m?.lv ?? '?'})`) : undefined,
+      moves: Array.isArray(p.moves) ? p.moves.map(moveLine) : undefined,
       held_item: p.item ?? null,
       ...(slots.length ? {
         move_slots: slots.map((g) => ({ slot: g.index, active: g.index === p.active, moves: g.moves.map(moveText) })),
@@ -85,6 +89,15 @@ export function dangerOf(t) {
       lowest_damage_tactic: safest.id,
     },
   };
+}
+
+// "Ascuas (lv 3/5, evolves into Llamarada at max level, needs stat card Potencia: not taken yet)"
+export function moveLine(m) {
+  const lv = `lv ${m?.lv ?? '?'}${typeof m?.maxLv === 'number' ? `/${m.maxLv}` : ''}`;
+  const e = m?.evo;
+  const evo = m?.evolved ? ', already evolved'
+    : e && e.into ? `, evolves into ${e.into} at max level, needs stat card ${e.needs ?? '?'}: ${e.ready ? 'already taken' : 'not taken yet'}` : '';
+  return `${m?.name ?? m?.id} (${lv}${evo})`;
 }
 
 // Move slots as the page reports them (player.slots); only well-formed ones.

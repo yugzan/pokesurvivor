@@ -46,7 +46,11 @@ export function sanitizeState(s) {
     time: num(s.time),
     player: {
       hp: num(p.hp), maxHp: num(p.maxHp), level: num(p.level),
-      moves: list(p.moves, LIMITS.moves).filter(isObj).map((m) => ({ id: str(m.id, LIMITS.name), name: str(m.name, LIMITS.name), lv: num(m.lv) })),
+      moves: list(p.moves, LIMITS.moves).filter(isObj).map((m) => ({
+        id: str(m.id, LIMITS.name), name: str(m.name, LIMITS.name), lv: num(m.lv), maxLv: num(m.maxLv),
+        ...(m.evolved === true ? { evolved: true } : {}),
+        ...(isObj(m.evo) && typeof m.evo.into === 'string' ? { evo: { into: str(m.evo.into, LIMITS.name), needs: str(m.evo.needs, LIMITS.name), ready: m.evo.ready === true } } : {}),
+      })),
       item: str(p.item, LIMITS.name) ?? null,
       stats,
       active: Number.isInteger(p.active) ? p.active : undefined,

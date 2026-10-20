@@ -553,7 +553,7 @@ describe('map tactics through sanitizeTactics', () => {
 // Danger numbers (est_damage_next_3s, survives_next_3s, danger_now) on every candidate, the group fight and the
 // rare targets (thief, shiny, golden, lost, rift go/no-go numbers): captured from the game page, they pass the
 // server's limits untouched, reach the question and feed the state's danger overview.
-import { summarizeState, dangerOf } from '../src/jev-core.js';
+import { summarizeState, dangerOf, buildChoiceQuestions } from '../src/jev-core.js';
 import { sanitizeState } from '../src/jev-http.js';
 describe('danger numbers and rare targets', () => {
   const shapes = JSON.parse(readFileSync(new URL('./fixtures/map-tactics.json', import.meta.url), 'utf8'));
@@ -611,5 +611,26 @@ describe('slot question with the page\'s damage per slot', () => {
     assert.match(q.criteria['1'], /Lanzallamas .*\(estimated 180 damage\/s to the nearby enemies\)$/);
     const plain = slotQuestion(sanitizeState({ player: { slots: state.player.slots } }));
     assert.doesNotMatch(plain.criteria['0'], /estimated/, 'without the number, no claim');
+  });
+});
+
+describe('move evolution in the state', () => {
+  test('max level, evolution target and its stat card reach Jev through sanitizeState', () => {
+    const state = { player: { hp: 50, maxHp: 100, level: 9, moves: [
+      { id: 'ember', name: 'Ascuas', lv: 3, maxLv: 5, evo: { into: 'Llamarada', needs: 'Potencia', ready: false } },
+      { id: 'tackle', name: 'Placaje', lv: 5, maxLv: 5, evo: { into: 'Derribo', needs: 'Vigor', ready: true } },
+      { id: 'water-gun', name: 'Escaldar', lv: 5, maxLv: 5, evolved: true },
+      { id: 'swords-dance', name: 'Danza Espada', lv: 2, maxLv: 5, evo: 'junk' },
+    ] } };
+    const lines = summarizeState(sanitizeState(state), null).player.moves;
+    assert.equal(lines[0], 'Ascuas (lv 3/5, evolves into Llamarada at max level, needs stat card Potencia: not taken yet)');
+    assert.equal(lines[1], 'Placaje (lv 5/5, evolves into Derribo at max level, needs stat card Vigor: already taken)');
+    assert.equal(lines[2], 'Escaldar (lv 5/5, already evolved)');
+    assert.equal(lines[3], 'Danza Espada (lv 2/5)');
+  });
+  test('the level-up question explains how evolution works', () => {
+    const q = buildChoiceQuestions({ kind: 'levelup', cards: [{ index: 0, title: 'Potencia', desc: '+10%', tag: 'Evoluciona Ascuas' }] }, false).best_card;
+    assert.match(q.instructions, /EVOLVES once the player has taken/);
+    assert.match(q.instructions, /"Evoluciona <move>"/);
   });
 });
