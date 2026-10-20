@@ -1214,8 +1214,6 @@ G.I18n.add({
   "monedas": "金幣",
   "Ver su perfil": "查看個人資料",
   "Flechas al botín lejano": "遠處掉落物的方向箭頭",
-  "Gacha ×10 al instante": "扭蛋十連抽直接顯示結果",
-  "Gacha: la tirada de 10 ya no pasa por la tragaperras ni saca las cartas de una en una; ves las 10 a la vez nada más pulsar. La de 1 sigue con su animación.": "轉蛋：十連抽不再經過拉霸機，也不會一張一張翻卡，按下後 10 張立即全部顯示。單抽仍保留動畫。",
   "Los objetos y los tickets que se quedan fuera de la pantalla tienen ahora una flechita en el borde con su icono y a cuántos metros están (los 4 más cercanos), para que no se te pierdan en el mapa.": "畫面外的道具和抽獎券現在會在畫面邊緣顯示小箭頭，附上圖示和距離幾公尺（最近的 4 個），不會在地圖上找不到。"
 }
 , 'zh-Hant');
