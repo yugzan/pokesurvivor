@@ -6,14 +6,47 @@
  * Cada línea en español y en inglés.
  */
 G.CHANGELOG = [
+  { d: '2026-10-20', title: ['Jev y la evolución de movimientos', 'Jev and move evolution'], chg: [
+    ['Jev (y los agentes por MCP) saben ya cómo evolucionan los movimientos: ven el nivel máximo de cada uno, en qué evoluciona y qué carta de mejora lo pide y si ya la has cogido, así que pueden ir a por la evolución en vez de esperar a que salga la carta dorada.',
+     'Jev (and MCP agents) now know how moves evolve: they see each move’s max level, what it evolves into, which stat card it needs and whether you already took it, so they can go for the evolution instead of waiting for the gold card to show up.']
+  ] },
+  { d: '2026-10-19', title: ['La IA con las reglas nuevas', 'The AI with the new rules'], fix: [
+    ['La IA (piloto automático y Jev) calcula el daño con las reglas nuevas: Ataque o Ataque Especial según el movimiento, las defensas de los enemigos y las tuyas.',
+     'The AI (autopilot and Jev) works out damage with the new rules: Attack or Special Attack depending on the move, and enemy and your own defenses.']
+  ] },
+  { d: '2026-10-19', title: ['38 ataques nuevos', '38 new moves'], new: [
+    ['38 ataques nuevos: ahora todos los tipos tienen 5 o más (Roca, Lucha, Dragón y Hada tenían sólo 2). Entre ellos Hiperrayo, Rayo Solar, Magnitud, Torbellino, Onda Trueno, Enfado, Carantoña, Golpe Bajo... cada uno con su evolución.',
+     '38 new moves: every type now has 5 or more (Rock, Fighting, Dragon and Fairy had only 2). Among them Hyper Beam, Solar Beam, Magnitude, Whirlpool, Thunder Wave, Outrage, Play Rough, Sucker Punch... each with its evolution.'],
+    ['Formas nuevas de atacar: disparos que persiguen al enemigo o rebotan entre ellos, rayos que se cargan, giros que golpean todo alrededor, ondas que avanzan por el suelo, remolinos que atraen a los enemigos, ondas que los apartan y zonas que los dejan aturdidos.',
+     'New ways to attack: shots that chase enemies or bounce between them, beams you charge up, spins that hit everything around you, shockwaves that travel along the ground, vortexes that pull enemies in, waves that push them away and zones that stun them.'],
+    ['Mejora nueva, Movimiento inicial: se compra una vez por Pokémon y luego eliges gratis con qué ataque empieza la partida.',
+     'New upgrade, Starting move: buy it once per Pokémon and then choose for free which move it starts the run with.'],
+    ['Idiomas nuevos: francés, italiano, portugués de Brasil, chino simplificado y chino tradicional, en Ajustes > Gráficos > Idioma. Gracias a quienes los tradujeron.',
+     'New languages: French, Italian, Brazilian Portuguese, Simplified Chinese and Traditional Chinese, in Settings > Graphics > Language. Thanks to everyone who translated them.'],
+    ['Una frase de broma en el título del menú principal, como las de Minecraft.',
+     'A joke line on the main menu title, like the ones in Minecraft.']
+  ], chg: [
+    ['Los Pokémon de un solo tipo pegan un 20 % más con los ataques de su tipo, para compensar que tienen menos variedad.',
+     'Single-type Pokémon deal 20% more damage with moves of their type, to make up for having less variety.'],
+    ['Al aprender un ataque nuevo ya no se cambia solo a él: sigues con el que estabas usando y cambias cuando tú quieras.',
+     'Learning a new move no longer switches to it on its own: you keep the one you were using and switch whenever you want.'],
+    ['El juego sólo se puede jugar en su web oficial, pokesurvivor.com: si otra web lo mete dentro de la suya (por ejemplo, para ponerle anuncios alrededor), sale un aviso con un botón para ir a la oficial.',
+     'The game can only be played on its official website, pokesurvivor.com: if another site embeds it in its own page (for example, to put ads around it), a notice appears with a button to go to the official one.']
+  ], fix: [
+    ['Movimiento inicial: ya se puede volver al ataque de serie aunque no sea de su tipo (por ejemplo Confusión en Psyduck).',
+     'Starting move: you can now go back to the default move even if it is not of its type (for example Confusion on Psyduck).'],
+    ['Cooperativo: el jefe que tocaba al volver de una grieta podía salir a miles de metros, donde nadie lo encontraba, y la partida se quedaba sin más grietas. Ahora sale cerca, y si un jefe se queda lejísimos de todos, vuelve a aparecer cerca a los pocos segundos.',
+     'Co-op: the boss due when coming back from a rift could appear thousands of metres away, where nobody could find it, and the run got no more rifts. Now it appears nearby, and if a boss ends up very far from everyone, it shows up close again after a few seconds.'],
+    ['Al recargar, a veces la página nueva se juntaba con los estilos viejos guardados en el navegador (por ejemplo, la frase del título salía en grande pegada a «PokéSurvivor»). Ya no pasa.',
+     'When reloading, the new page sometimes got mixed with the old styles saved in the browser (for example, the title line showed up big and stuck to "PokéSurvivor"). That no longer happens.']
+  ] },
   { d: '2026-10-19', title: ['Gacha ×10 al instante', 'Instant ×10 gacha'], chg: [
     ['Gacha: la tirada de 10 ya no pasa por la tragaperras ni saca las cartas de una en una; ves las 10 a la vez nada más pulsar. La de 1 sigue con su animación.',
      'Gacha: the 10-pull no longer goes through the slot machine or reveals the cards one by one; you see all 10 at once as soon as you tap. The single pull keeps its animation.']
-  ], fix: [
-    ['La IA (piloto automático y Jev) calcula el daño con las reglas nuevas: Ataque o Ataque Especial según el movimiento, las defensas de los enemigos y las tuyas.',
-     'The AI (autopilot and Jev) works out damage with the new rules: Attack or Special Attack depending on the move, and enemy and your own defenses.'],
-    ['Chino tradicional: traducidos los textos nuevos (mando, colección, físico y especial, resumen de la pausa, Accesibilidad, botón Guardar) y las novedades, que salían en español.',
-     'Traditional Chinese: the new texts (controller, collection, physical and special, pause summary, Accessibility, Save button) and the news, which showed up in Spanish, are now translated.']
+  ] },
+  { d: '2026-10-18', title: ['La IA elige mejor el movimiento', 'The AI picks moves better'], chg: [
+    ['El piloto automático y Jev calculan ahora el daño de cada movimiento como de verdad lo hace el juego (cuántos enemigos pilla cada forma de atacar, su alcance, quemaduras y veneno), medido en partidas de prueba. Antes creían que Giro Fuego y demás órbitas pegaban más de lo real (hasta unas 4 veces) y que Sustituto y Fuego Fatuo pegaban 10 veces menos, así que elegían mal el hueco. Las cartas de movimiento que ve Jev llevan también ese daño por segundo.',
+     'The autopilot and Jev now work out each move’s damage the way the game really deals it (how many enemies each attack shape hits, its range, burn and poison), measured in test runs. Before, they thought Fire Spin and the other orbits hit harder than they do (up to about 4 times) and that Substitute and Will-O-Wisp hit 10 times less, so they picked the wrong slot. The move cards Jev sees now also show that damage per second.']
   ] },
   { d: '2026-10-18', title: ['Físico y especial, mando, botón Guardar y rankings desde cero', 'Physical and special, controller, Save button and fresh leaderboards'], new: [
     ['Ataques físicos y especiales, como en los juegos: cada Pokémon tiene su Ataque, Ataque Especial, Defensa y Defensa Especial. Los ataques físicos pegan con su Ataque y los especiales con su Ataque Especial: Machamp pega fuerte con Golpe Kárate y flojo con Bola Sombra. Con los de su lado bueno pega lo mismo que antes. Al subir de nivel, cada carta dice si el ataque es físico o especial y cuánto rinde con tu Pokémon, y en la colección se ven todas sus estadísticas.',
@@ -59,13 +92,7 @@ G.CHANGELOG = [
     ['En el ranking ya salen en shiny los Pokémon de quien jugó con su shiny.',
      'The leaderboard now shows Pokémon in shiny form for players who played with their shiny.']
   ] },
-  { d: '2026-10-18', title: ['La IA elige mejor el movimiento', 'The AI picks moves better'], chg: [
-    ['El piloto automático y Jev calculan ahora el daño de cada movimiento como de verdad lo hace el juego (cuántos enemigos pilla cada forma de atacar, su alcance, quemaduras y veneno), medido en partidas de prueba. Antes creían que Giro Fuego y demás órbitas pegaban más de lo real (hasta unas 4 veces) y que Sustituto y Fuego Fatuo pegaban 10 veces menos, así que elegían mal el hueco. Las cartas de movimiento que ve Jev llevan también ese daño por segundo.',
-     'The autopilot and Jev now work out each move’s damage the way the game really deals it (how many enemies each attack shape hits, its range, burn and poison), measured in test runs. Before, they thought Fire Spin and the other orbits hit harder than they do (up to about 4 times) and that Substitute and Will-O-Wisp hit 10 times less, so they picked the wrong slot. The move cards Jev sees now also show that damage per second.']
-  ] },
-  { d: '2026-10-16', title: ['Flechas al botín lejano', 'Arrows to far-off loot'], new: [
-    ['Los objetos y los tickets que se quedan fuera de la pantalla tienen ahora una flechita en el borde con su icono y a cuántos metros están (los 4 más cercanos), para que no se te pierdan en el mapa.',
-     'Items and tickets left off-screen now get a small arrow at the edge with their icon and how many metres away they are (the 4 closest), so you don’t lose them on the map.'],
+  { d: '2026-10-16', title: ['La IA ve el mapa', 'The AI sees the map'], new: [
     ['Conexión con IA: el agente ya ve el mapa a su alrededor (paredes, agua o lava, árboles, rocas, cofres, altares, manantiales y trampas), los avisos de ataque en el suelo, los disparos enemigos, la grieta y qué enemigos vuelan por encima de los obstáculos.',
      'AI connection: the agent now sees the map around it (walls, water or lava, trees, rocks, chests, altars, springs and traps), attack warnings on the floor, enemy shots, the rift and which enemies fly over obstacles.'],
     ['Jev ahora también se plantea entrar en la grieta, tocar altares, abrir cofres con candado, romper rocas y cofres, recoger los tickets y objetos del suelo y ponerse a cubierto de los que disparan detrás de un árbol o una pared.',
@@ -73,7 +100,11 @@ G.CHANGELOG = [
     ['Jev juega con más cabeza: cada opción le llega con el daño que te harán en los próximos 3 s si la eliges (y si sobrevives), así que ya no se queda peleando cuando la horda te va a tumbar; si te van a dejar KO antes de que conteste, el piloto sale solo por el hueco del cerco. Además se plantea perseguir al duende del tesoro, cazar un shiny, aprovechar la hora dorada y llevar a casa al Pokémon perdido cuando le da tiempo.',
      'Jev plays smarter: every option now comes with how much damage you would take in the next 3 s if it picks it (and whether you survive), so it no longer keeps fighting when the horde is about to take you down; if you would be knocked out before it answers, the autopilot breaks out through the gap on its own. It also considers chasing the treasure thief, hunting a shiny, making the most of golden hour and taking the lost Pokémon home when there is time.']
   ] },
-  { d: '2026-10-15', title: ['Traducción al chino tradicional', 'Traditional Chinese translation'], new: [
+  { d: '2026-10-16', title: ['Flechas al botín lejano', 'Arrows to far-off loot'], new: [
+    ['Los objetos y los tickets que se quedan fuera de la pantalla tienen ahora una flechita en el borde con su icono y a cuántos metros están (los 4 más cercanos), para que no se te pierdan en el mapa.',
+     'Items and tickets left off-screen now get a small arrow at the edge with their icon and how many metres away they are (the 4 closest), so you don’t lose them on the map.']
+  ] },
+  { d: '2026-10-15', title: ['Conexión con IA', 'AI connection'], new: [
     ['Conexión con IA: en Ajustes > IA puedes dejar que un agente de IA (Claude, Codex…) juegue contigo a través de MCP. Te da un código de 6 caracteres para emparejarlo; el agente puede elegir cartas y moverse con un piloto automático, y tú puedes seguir eligiendo cuando quieras.',
      'AI connection: in Settings > AI you can let an AI agent (Claude, Codex…) play with you through MCP. You get a 6-character code to pair it; the agent can pick cards and move with an autopilot, and you can still choose yourself whenever you want.'],
     ['Ranking: las partidas con IA cuentan, pero aparte de las tuyas y marcadas (🧠 con ayuda de IA, 🤖 ha jugado la IA). Con "Ocultar IA" ves sólo las partidas jugadas por personas.',
@@ -83,12 +114,8 @@ G.CHANGELOG = [
     ['Jev juega solo, sin agente: en Ajustes > IA pon tu clave de Jev y activa "Jev juega solo". La página elige las cartas, decide si cambiar opciones y mueve al personaje con el piloto automático. La clave sólo se guarda en tu dispositivo, y esas partidas cuentan como jugadas por la IA (🤖).',
      'Jev plays on its own, no agent needed: in Settings > AI enter your Jev key and turn on "Jev plays on its own". The page picks the cards, decides when to reroll and moves the character with the autopilot. The key is only saved on your device, and those runs count as played by AI (🤖).'],
     ['Jev también cambia de movimiento: mira los tipos y la distancia de los enemigos y activa el hueco que mejor les va (como las teclas 1, 2, 3...). Los agentes por MCP pueden hacerlo con set_active_move.',
-     'Jev also switches moves: it looks at the enemies’ types and distance and activates the slot that suits them best (like the 1, 2, 3... keys). MCP agents can do it with set_active_move.'],
-    ['El juego ahora incluye chino tradicional: menús, movimientos, objetos, misiones, avisos y nombres de los 966 Pokémon. Se puede cambiar el idioma en Ajustes > Gráficos.',
-     'The game now includes Traditional Chinese: menus, moves, items, missions, messages and names for all 966 Pokémon. Change the language in Settings > Graphics.']
+     'Jev also switches moves: it looks at the enemies’ types and distance and activates the slot that suits them best (like the 1, 2, 3... keys). MCP agents can do it with set_active_move.']
   ], chg: [
-    ['Cuando una actualización sea obligatoria (por ejemplo, para arreglar un fallo importante), la partida en curso se termina tras un aviso de 10 s y el juego se recarga. No pierdes nada: las monedas, los tickets, los récords y el ranking de esa partida se guardan como al abandonarla.',
-     'When an update is required (for example, to fix an important bug), your current run ends after a 10 s notice and the game reloads. You lose nothing: that run’s coins, tickets, records and leaderboard entry are saved as if you had quit.'],
     ['El piloto automático de la IA juega mejor: mantiene la distancia a la que su ataque activo llega, prevé dónde estarán los enemigos, sus disparos y los avisos del suelo, sale del cerco por el hueco antes de que se cierre, evita el agua (frena) con enemigos cerca, huye en línea recta disparando a los corredores que no se dejan atrás y no deja activo un movimiento que no hace daño. Sin jefe y sin cerco, corre en un círculo grande con la horda detrás (como harías tú), tuerce para recoger las gemas del camino y, cuando no le persigue nadie cerca, vuelve a por las que quedaron atrás.',
      'The AI autopilot plays better: it keeps the distance its active attack reaches, predicts where enemies, their shots and floor warnings will be, breaks out through the gap before the ring closes, avoids water (it slows you down) with enemies nearby, flees in a straight line shooting at runners that can’t be outrun, and doesn’t leave a move that deals no damage active. With no boss and no ring around it, it runs a big circle with the horde trailing behind (as you would), bends its path to pick up the gems on the way and, when nobody is chasing it closely, goes back for the ones left behind.'],
     ['Jev ya no elige sólo un "modo": la página calcula con las reglas del juego unas pocas tácticas con sus números (qué movimiento, a qué distancia, de qué enemigo y cuánto se tarda en tumbarlo, por dónde salir, gemas, manantial, trampas) y Jev escoge una cada segundo y medio. El movimiento activo va dentro de la táctica y no se cambia más de una vez cada 8 s. Los agentes por MCP pueden pedirlo con suggest_tactic.',
@@ -96,6 +123,10 @@ G.CHANGELOG = [
   ], fix: [
     ['Jev juega solo: ahora elige carta siempre (la más probable para Jev) y ya no se queda parado si hay un agente MCP emparejado; en Ajustes > IA se avisa del agente y se puede desconectar.',
      'Jev plays on its own: it now always picks a card (the one Jev rates highest) and no longer stops when an MCP agent is paired; Settings > AI shows the agent and lets you disconnect it.']
+  ] },
+  { d: '2026-10-15', title: ['Actualizaciones obligatorias', 'Required updates'], chg: [
+    ['Cuando una actualización sea obligatoria (por ejemplo, para arreglar un fallo importante), la partida en curso se termina tras un aviso de 10 s y el juego se recarga. No pierdes nada: las monedas, los tickets, los récords y el ranking de esa partida se guardan como al abandonarla.',
+     'When an update is required (for example, to fix an important bug), your current run ends after a 10 s notice and the game reloads. You lose nothing: that run’s coins, tickets, records and leaderboard entry are saved as if you had quit.']
   ] },
   { d: '2026-10-14', title: ['Recupera tu cuenta con Gmail', 'Recover your account with Gmail'], new: [
     ['Si juegas con nombre y contraseña, puedes vincular tu Gmail: si un día olvidas la contraseña, entras con Google y es tu misma cuenta. Te lo ofrecemos al entrar.',

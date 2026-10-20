@@ -163,6 +163,12 @@
       G.Audio.sfx('hit');
     }
 
+    /** Aturdido: se queda quieto y no ataca `dur` s (Onda Trueno, Tumba Rocas...). */
+    applyStun(dur) {
+      if (this.remote) { G.Coop.status(this, 't', dur); return; }
+      this.stunT = Math.max(this.stunT || 0, dur);
+    }
+
     applySlow(factor, dur = 1.2) {
       if (this.remote) { G.Coop.status(this, 's', factor); return; }
       this.slow = Math.max(this.slow, factor);
@@ -301,6 +307,8 @@
           if (this.dead) return;
         } else if (le.slow) terrainMul = le.slow < 0.5 ? 0.45 : 0.55;
       }
+
+      if (this.stunT > 0) { this.stunT -= dt; this.anim.loop('Idle'); return; }
 
       const spd = this.spd * (1 - this.slow) * terrainMul * G.Weather.speedFor(this.types);
       let [dx, dy] = G.U.norm(pl.x - this.x, pl.y - this.y);
@@ -734,6 +742,14 @@
       ctx.restore();
 
       if (this.dead) return;
+      // Aturdido: estrellitas girando sobre la cabeza.
+      if (this.stunT > 0) {
+        const now = performance.now() / 1000;
+        for (let i = 0; i < 3; i++) {
+          const a = now * 5 + i * 2.094;
+          G.VFX.draw(ctx, 'star', 'electric', this.x + Math.cos(a) * 9, this.y - lift - this.bodyH - 6 + Math.sin(a) * 3, { scale: 0.6 });
+        }
+      }
 
       // Escudo: burbuja azul.
       if (this.shield > 0 || (this.net && this.net.st & 4)) {
@@ -920,6 +936,7 @@
      */
     // Segundos que un rezagado tiene que llevar fuera de la vista antes de volver por delante.
     const LAG_T = 2.5;
+    const BOSS_FAR = 2500;    // jefe más lejos que esto de todos: se ha perdido (ver update)
 
     function update(dt, players) {
       if (!Array.isArray(players)) players = [players];
@@ -960,6 +977,13 @@
           list.splice(i, 1); byId.delete(e.id);
           if (G.Coop.isHost) G.Coop.enemyGone(e, false);
           continue;
+        }
+        // Jefe lejísimos de todos (salió junto a un compañero que aún volvía de la
+        // grieta, o se quedó atrás): a los 4 s vuelve a salir cerca, fuera de la vista.
+        // Si no, no se le encontraba y, con un jefe vivo, no salen grietas.
+        if (e.boss && !e.judge && !G.Rift.inArena) {
+          e.lagT = G.U.dist2(e.x, e.y, near.x, near.y) > BOSS_FAR * BOSS_FAR ? e.lagT + dt : 0;
+          if (e.lagT > 4) { e.lagT = 0; G.Spawner.ahead(e, near); }
         }
         if (e.boss || e.shiny || G.Rift.inArena) continue;
         // Rezagados: los que se quedan atrás mientras corres y llevan un rato
