@@ -8,7 +8,9 @@
 G.CHANGELOG = [
   { d: '2026-10-20', title: ['Jev y la evolución de movimientos', 'Jev and move evolution'], chg: [
     ['Jev (y los agentes por MCP) saben ya cómo evolucionan los movimientos: ven el nivel máximo de cada uno, en qué evoluciona y qué carta de mejora lo pide y si ya la has cogido, así que pueden ir a por la evolución en vez de esperar a que salga la carta dorada.',
-     'Jev (and MCP agents) now know how moves evolve: they see each move’s max level, what it evolves into, which stat card it needs and whether you already took it, so they can go for the evolution instead of waiting for the gold card to show up.']
+     'Jev (and MCP agents) now know how moves evolve: they see each move’s max level, what it evolves into, which stat card it needs and whether you already took it, so they can go for the evolution instead of waiting for the gold card to show up.'],
+    ['El piloto automático y Jev conocen los 38 ataques nuevos (persiguen, rebotan, se cargan, giran, ondas por el suelo, remolinos, empujones y aturdir): calculan su daño y su alcance como el juego, y saben que un ataque recién aprendido no se usa hasta que cambias a su hueco.',
+     'The autopilot and Jev know the 38 new moves (homing, bouncing, charged, spinning, ground waves, whirlpools, shoves and stuns): they work out their damage and reach the way the game does, and know a newly learned move isn’t used until you switch to its slot.']
   ] },
   { d: '2026-10-19', title: ['La IA con las reglas nuevas', 'The AI with the new rules'], fix: [
     ['La IA (piloto automático y Jev) calcula el daño con las reglas nuevas: Ataque o Ataque Especial según el movimiento, las defensas de los enemigos y las tuyas.',

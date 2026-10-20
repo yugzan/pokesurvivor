@@ -12,6 +12,7 @@ export const STRATEGY_MODES = {
 
 const KIND_HINT = {
   levelup: 'This is a level-up screen: each card adds a new move, upgrades or evolves a move the player has, or improves a stat. ' +
+    'A new move goes into its own slot and does NOT attack until that slot is made active (learning it keeps the current slot active). ' +
     'Move evolution: a move at its max level (lv N/N) EVOLVES once the player has taken, at any time this run, the stat card it needs ' +
     '(see `player.moves`: "evolves into X at max level, needs stat card Y"); then a gold card tagged EVOLUCIÓN appears, a big power jump ' +
     '(about x1.6-1.9 damage plus extra projectiles/area). A stat card tagged "Evoluciona <move>" is the one that unlocks that evolution, ' +
@@ -170,6 +171,7 @@ export function slotQuestion(state) {
   return {
     type: 'choice',
     instructions: 'Only the moves in the ACTIVE slot are cast (automatically); the player can switch slots at any time. ' +
+      'A newly learned move sits in its own slot and only attacks once that slot is switched to. ' +
       'Which slot should be active right now to deal the most damage and stay safe, given the enemies\' types (type matchups: e.g. water beats fire, ' +
       'electric beats water, fire beats grass/bug/ice) and distances in `state`, and each move\'s type, attack shape and range? ' +
       'Each option is a slot number; its description lists the move(s) in that slot (names in Spanish) and, when known, the damage per second ' +

@@ -40,6 +40,22 @@
  *     duran 3 / 4 s desde el último golpe (enemy.js:146-153, :255-263); media en lo que tarda en caer (máx. 15 s)
  *   - medido en el juego (banco de pruebas, 2026-10-18): parte de minas que pisan los perseguidores MINE_ON y
  *     del rastro TRAIL_ON (dependen de cómo te persiguen; no salen de una regla)
+ *   - monotipo (19-10-2026): ×1,2 con los de su tipo si sólo tiene uno (player.js atkFor / MONO_K / monoType):
+ *     entra solo porque dpsOn usa pl.atkFor(m)
+ * Familias nuevas (combat.js del 2026-10-19, funciones por nombre; todas necesitan blanco: combat.js TARGETED):
+ *   - homing: fireProjectiles con m.homing (se curvan al más cercano a < 340, projectile.js update) = proyectil
+ *   - bounce: fireProjectiles; al dar, rebound salta al más cercano NO tocado a < 220 px del golpeado, `bounce`
+ *     veces, daño entero en cada uno (antes que la perforación)
+ *   - charge: chargeUp → a los `charge` s, beam() (el rayo de siempre, con su grosor); recarga desde que se lanza
+ *   - spin: campo que te sigue y da `count` golpes (cada 0,13 s) a todo lo que toca radius (tickNewField)
+ *   - quake: `count` explosiones (cada 0,07 s) de radio `radius` a i·QSTEP (34 px) en línea hacia donde
+ *     apuntas, desde donde estabas (quake / tickNewField / blast); una pared la corta
+ *   - vortex: campo en el blanco (spotFor, < 300 px) que daña cada 0,4 s (el primero a 0,15 s) durante `dur`
+ *     y atrae a `pull` px/s (jefes ×0,25) a los de < 1,4·radius; como mucho 2 a la vez por jugador (vortex)
+ *   - shove: un golpe a todo lo de < radius alrededor y los aparta `knock` (shove)
+ *   - stun: zona en el blanco (spotFor) que a los 0,45 s daña a todo lo de < radius y lo deja quieto `stun` s
+ *     (jefes ×0,35); aturdido no se mueve, no dispara ni pega por contacto (stunZone, enemy.js applyStun /
+ *     update, combat.js resolve)
  * Objetos del mapa (versión del 2026-10-16):
  *   - grieta: dura 45 s y se entra a <30 px de (x, y−10) (rift.js:25, :42); el legendario sale del
  *     grupo de legendarios con sprite, ×4 los que aún no has vencido (rift.js:92-98); vida
@@ -97,6 +113,7 @@ G.Tactics = (() => {
   const DIR8 = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE'];
   const KEEPERS = ['ranged', 'fan', 'beamer', 'zoner', 'healer', 'summoner'];
   const r1 = v => Math.round(v * 10) / 10;
+  const QSTEP = 34;                       // distancia entre ondas de un terremoto (combat.js QSTEP)
 
   // ---------------- conocimiento: movimientos ----------------
 
@@ -116,6 +133,11 @@ G.Tactics = (() => {
       case 'orbit': return m.radius + (m.size || 8);
       case 'turret': return m.range || 300;
       case 'mine': case 'trail': return 40;
+      case 'homing': case 'bounce': return Math.min(520, (m.speed || 300) * (m.life || 1.5));   // fireProjectiles
+      case 'charge': return m.radius;                                  // beam()
+      case 'spin': case 'shove': return m.radius;                      // + radio del enemigo (queryCircle)
+      case 'quake': return (m.count | 0) * QSTEP + m.radius;           // la última onda
+      case 'vortex': case 'stun': return 300;                          // se pone en el blanco (spotFor, reach)
       default: return 0;                                               // buff
     }
   }
@@ -137,12 +159,18 @@ G.Tactics = (() => {
       case 'melee': return Math.max(26, m.radius * 0.7);
       case 'turret': return 150;
       case 'mine': case 'trail': return 120;
+      case 'homing': case 'bounce': return U.clamp(h * 0.42, 140, 230);   // como el proyectil
+      case 'charge': return U.clamp(h * 0.7, 90, 220);                  // como el rayo
+      case 'spin': case 'shove': return Math.max(30, m.radius * 0.6);   // como el aura: todo alrededor
+      case 'quake': return U.clamp(h * 0.5, 60, 200);                   // el blanco a media línea de ondas
+      case 'vortex': case 'stun': return 200;                           // caen sobre el blanco: no hace falta acercarse
       default: return 220;
     }
   }
 
   /** ¿Hace daño en área (puede dar a varios a la vez)? */
-  const AREA = ['nova', 'cone', 'melee', 'beam', 'aura', 'boomerang', 'meteor', 'dash', 'orbit', 'mine', 'trail'];
+  const AREA = ['nova', 'cone', 'melee', 'beam', 'aura', 'boomerang', 'meteor', 'dash', 'orbit', 'mine', 'trail',
+                'bounce', 'charge', 'spin', 'quake', 'vortex', 'shove', 'stun'];
 
   /** Tu velocidad fuera del agua (pl.spd ya trae el frenazo si estás dentro). */
   function drySpd(pl) {
@@ -156,7 +184,8 @@ G.Tactics = (() => {
   // Cuenta, con la posición de cada enemigo, cuántos golpes le da de verdad cada forma de atacar
   // (combat.js) y suma quemadura y veneno (enemy.js). Comprobado contra el juego (2026-10-18): banco
   // de pruebas con muñecos a 60/200/400 px, 10 repartidos en 250 px y 8 que te persiguen.
-  const TARGETED = ['melee', 'beam', 'projectile', 'boomerang', 'chain', 'meteor', 'dash', 'cone'];   // combat.js needsTarget
+  const TARGETED = ['melee', 'beam', 'projectile', 'boomerang', 'chain', 'meteor', 'dash', 'cone',      // combat.js needsTarget
+                    'homing', 'bounce', 'charge', 'spin', 'quake', 'vortex', 'shove', 'stun'];
   /** Distancia del blanco a la que se lanza (combat.js reach). */
   function reachOf(m) {
     switch (m.kind) {
@@ -167,6 +196,9 @@ G.Tactics = (() => {
       case 'meteor': return 340;
       case 'dash': return m.radius + 60;
       case 'cone': return m.speed * m.life + 30;
+      case 'spin': case 'shove': case 'charge': return m.radius + 20;
+      case 'quake': return (m.count | 0) * QSTEP + m.radius;
+      case 'vortex': case 'stun': return 300;
       default: return 520;
     }
   }
@@ -238,7 +270,7 @@ G.Tactics = (() => {
     const dist = f => Math.hypot(f.x - px, f.y - py);
     const add = (j, k, hits = k) => { w[j] += k; n[j] += hits; };
     switch (m.kind) {
-      case 'projectile': {                  // combat.js fireProjectiles: abanico de `count`, perforación
+      case 'projectile': case 'homing': {   // combat.js fireProjectiles: abanico de `count`, perforación (homing: run → fireProjectiles con m.homing)
         const R = Math.min(520, (m.speed || 300) * (m.life || 1.5)), sp = m.spread || 0;
         for (let i = 0; i < cnt; i++) {
           const off = cnt === 1 || m.homing ? 0 : (i / (cnt - 1) - 0.5) * sp * cnt;   // teledirigido: va al más cercano
@@ -280,11 +312,13 @@ G.Tactics = (() => {
         }
         return { w, n };
       }
-      case 'beam': case 'dash': {           // combat.js beam (franja) / dash (cápsula: segDist2): recto, largo `radius`
+      case 'beam': case 'charge': case 'dash': {   // combat.js beam (franja) / dash (cápsula: segDist2): recto, largo `radius`
+        // charge: chargeUp → a los `charge` s llama a beam() (tickNewField); la recarga corre desde el lanzamiento,
+        // así que da los mismos golpes por segundo. No se cuenta lo que se mueve el blanco durante la carga.
         const half = (m.width || 34) / 2, c = Math.cos(a0), s = Math.sin(a0), L = m.radius;
         for (let j = 0; j < N; j++) {
           const f = foes[j], dx = f.x - px, dy = f.y - py, al = dx * c + dy * s, lat = Math.abs(dy * c - dx * s);
-          const hit = m.kind === 'beam' ? al >= -f.r && al <= L + f.r && lat <= half + f.r
+          const hit = m.kind !== 'dash' ? al >= -f.r && al <= L + f.r && lat <= half + f.r
             : Math.hypot(Math.max(0, al - L, -al), lat) <= half + f.r;
           if (hit) add(j, per);
         }
@@ -292,6 +326,73 @@ G.Tactics = (() => {
       }
       case 'aura': {                        // combat.js aura: todo lo que toca el círculo
         for (let j = 0; j < N; j++) if (dist(foes[j]) <= m.radius + foes[j].r) add(j, per);
+        return { w, n };
+      }
+      case 'spin': case 'shove': {          // combat.js spin + tickNewField: `count` golpes (cada 0,13 s) a < radius; shove: uno
+        // shove además aparta `knock` px (no a los jefes): eso es control, no daño; aquí sólo cuenta el golpe.
+        const k = m.kind === 'spin' ? cnt : 1;
+        for (let j = 0; j < N; j++) if (dist(foes[j]) <= m.radius + foes[j].r) add(j, per * k);
+        return { w, n };
+      }
+      case 'quake': {                       // combat.js quake + tickNewField: ondas i = 1..count a i·QSTEP en línea, blast de radio `radius`
+        const c = Math.cos(a0), s = Math.sin(a0);
+        for (let i = 1; i <= cnt; i++) {
+          const cx = px + c * i * QSTEP, cy = py + s * i * QSTEP;
+          for (let j = 0; j < N; j++) if (Math.hypot(foes[j].x - cx, foes[j].y - cy) <= m.radius + foes[j].r) add(j, per);
+        }
+        return { w, n };
+      }
+      case 'vortex': {                      // combat.js vortex + tickNewField: en el blanco, blast cada 0,4 s (el 1.º a 0,15 s) durante `dur`
+        // Como mucho 2 a la vez (se quitan los viejos): cada uno vive min(dur, 2 · recarga).
+        const life = Math.min(m.dur || 2.6, 2 * castEvery(pl, m));
+        const ticks = life > 0.15 ? 1 + Math.floor((life - 0.15) / 0.4) : 0;
+        const R = m.radius, pull = m.pull || 140, cx = tg.x, cy = tg.y;
+        for (let j = 0; j < N; j++) {
+          const f = foes[j], d = Math.hypot(f.x - cx, f.y - cy);
+          if (d > R * 1.4 + f.r) continue;                     // fuera de lo que atrae (queryCircle f.r · 1.4)
+          // Atrae a `pull` px/s (jefes ×0,25): si puede con su velocidad, se queda dentro todo el rato; si no
+          // (un jefe), sale andando hacia ti en (R + su radio) / velocidad. Los de la corona entre R y 1,4·R
+          // tardan en entrar: se pierden el primer golpe.
+          const pk = pull * (f.boss ? 0.25 : 1), held = pk >= (f.spd || 0);
+          const stay = held ? life : Math.min(life, (R + f.r) / Math.max(1, f.spd - pk));
+          let k = stay > 0.15 ? 1 + Math.floor((stay - 0.15) / 0.4) : 0;
+          if (d > R + f.r) k = Math.max(0, k - 1);
+          if (k) add(j, per * Math.min(k, ticks));
+        }
+        // Control (que no se te acerquen mientras dura) no se cuenta como daño.
+        return { w, n };
+      }
+      case 'stun': {                        // combat.js stunZone + tickNewField: en el blanco, a los 0,45 s, un golpe a todo lo de < radius
+        // Se calcula donde está el blanco ahora (en 0,45 s un perseguidor a 60 px/s se mueve ~27 px; el radio es ~56).
+        // El aturdimiento (`stun` s quieto, sin pegar ni disparar) no se pasa a daño: lo ve simulate con e.stunT.
+        for (let j = 0; j < N; j++) if (Math.hypot(foes[j].x - tg.x, foes[j].y - tg.y) <= m.radius + foes[j].r) add(j, per);
+        return { w, n };
+      }
+      case 'bounce': {                      // combat.js fireProjectiles + rebound: da al primero y salta `bounce` veces
+        // Primer golpe: recto como un proyectil (abanico si count > 1). Cada rebote va al más cercano aún no tocado
+        // a < 220 px del que acaba de golpear, con todo el daño. No se cuenta a quien se cruce en el camino del rebote.
+        const R = Math.min(520, (m.speed || 300) * (m.life || 1.5)), sp = m.spread || 0, nb = m.bounce | 0;
+        for (let i = 0; i < cnt; i++) {
+          const off = cnt === 1 ? 0 : (i / (cnt - 1) - 0.5) * sp * cnt;
+          const first = new Float64Array(N);
+          ray(px, py, a0 + off, R, m.size || 6, foes, 1, first, 1, 0.03);
+          for (let j0 = 0; j0 < N; j0++) {
+            if (!first[j0]) continue;
+            const pw = per * first[j0], done = new Set([j0]);
+            let cur = j0;
+            add(j0, pw);
+            for (let b = 0; b < nb; b++) {
+              let best = -1, bd = 220 * 220;
+              for (let j = 0; j < N; j++) {
+                if (done.has(j)) continue;
+                const d2 = (foes[j].x - foes[cur].x) ** 2 + (foes[j].y - foes[cur].y) ** 2;
+                if (d2 < bd) { bd = d2; best = j; }
+              }
+              if (best < 0) break;
+              done.add(best); add(best, pw); cur = best;
+            }
+          }
+        }
         return { w, n };
       }
       case 'boomerang': {                   // combat.js boomerang: va `radius` y vuelve; golpea a la ida y a la vuelta
@@ -448,7 +549,7 @@ G.Tactics = (() => {
 
   /** Un enemigo (o el de referencia) puesto a `d` px delante de ti, para el modelo. */
   const proxy = (e, d) => ({ x: d, y: 0, r: e ? e.r || REF_R : REF_R, hp: e ? e.hp : REF_HP, maxHp: e ? e.maxHp : REF_HP,
-    types: e ? e.types : null, mon: e ? e.mon : null, behavior: e ? e.behavior : 'chase', spd: e ? e.spd || 0 : 60, burn: e && e.burn, poison: e && e.poison, slow: e && e.slow });
+    types: e ? e.types : null, mon: e ? e.mon : null, behavior: e ? e.behavior : 'chase', spd: e ? e.spd || 0 : 60, boss: !!(e && e.boss), burn: e && e.burn, poison: e && e.poison, slow: e && e.slow });
 
   /** 10 enemigos de referencia repartidos en 250 px que te persiguen (como el banco de pruebas). */
   const REF_GROUP = Array.from({ length: 10 }, (_, i) => ({ x: Math.cos(i * 2.39996) * (60 + 19 * i), y: Math.sin(i * 2.39996) * (60 + 19 * i),
@@ -533,7 +634,8 @@ G.Tactics = (() => {
         index: i, moves: g, main,
         dps, baseDps: base, typeK: wsum ? kSum / wsum : 1, area,
         range: main ? hitRange(main) : 0, keep,
-        melee: g.some(m => m.kind === 'melee' || m.kind === 'aura' || m.kind === 'orbit'),
+        // De cerca (hay que meterse entre ellos): también giro y empujón, que sólo dan a < radius de ti (combat.js spin / shove).
+        melee: g.some(m => m.kind === 'melee' || m.kind === 'aura' || m.kind === 'orbit' || m.kind === 'spin' || m.kind === 'shove'),
         orbit: g.some(m => m.kind === 'orbit')
       };
     });
@@ -592,7 +694,11 @@ G.Tactics = (() => {
 
   const LOOT_VAL = { ticket10: 0.35, item: 0.3, ticket: 0.2 };
   const SHOOTS = ['ranged', 'fan'];                       // disparan proyectiles (los tapan paredes y árboles)
-  const PROP_AIMED = ['projectile', 'melee', 'beam', 'boomerang', 'cone', 'dash'];   // dan al objeto si se le apunta
+  // Dan al objeto si se le apunta (necesitan blanco, y el blanco puede ser la roca/cofre: player.js update).
+  // Familias del 19-10-2026: homing/bounce chocan como proyectiles (combat.js resolve), charge es beam(),
+  // spin/shove dañan propsInCircle a tu alrededor y quake hace blast() en cada onda. vortex y stun no: van a
+  // spotFor, que sólo acepta enemigos (t.hurt); sin enemigo, stunZone no sale y vortex cae a 120 px delante.
+  const PROP_AIMED = ['projectile', 'melee', 'beam', 'boomerang', 'cone', 'dash', 'homing', 'bounce', 'charge', 'spin', 'shove', 'quake'];
   const PROP_ALWAYS = ['nova', 'aura', 'orbit'];          // dan a lo que tocan, sin apuntar
   const POWER_EN = {
     dmg: ['damage x2', 0.3], spd: ['+45% move speed', 0.1], mag: ['pickup magnet radius x4', 0.12], cd: ['-40% cooldowns', 0.25]
@@ -644,14 +750,14 @@ G.Tactics = (() => {
   /** Distancias (desde el centro del objeto) entre las que el movimiento le da. */
   function propBand(m, p) {
     switch (m.kind) {
-      case 'melee': case 'aura': return [0, m.radius + p.r - 6];
+      case 'melee': case 'aura': case 'spin': case 'shove': return [0, m.radius + p.r - 6];
       case 'orbit': return [Math.max(0, m.radius - p.r - (m.size || 8) + 4), m.radius + p.r + (m.size || 8) - 4];
-      case 'beam': case 'dash': return [0, m.radius * 0.8];
+      case 'beam': case 'charge': case 'dash': return [0, m.radius * 0.8];
       default: return [0, Math.min(170, hitRange(m) * 0.8)];
     }
   }
 
-  const BALLISTIC = ['projectile', 'boomerang', 'cone', 'nova'];   // vuelan: un árbol o una pared en medio se los come
+  const BALLISTIC = ['projectile', 'boomerang', 'cone', 'nova', 'homing', 'bounce'];   // vuelan: un árbol o una pared en medio se los come
   /**
    * Sitio desde el que un movimiento que se apunta le da al objeto p: libre, a tiro, con p como roca/cofre
    * más cercano (player.js: el apuntado va a nearestBreakable) y, si vuela, sin nada sólido en medio.
@@ -827,6 +933,7 @@ G.Tactics = (() => {
         fanN: (e.def && e.def.fanN) || 5,
         phase: e.phase, pt: e.pt || 0, dx: e.dx || 0, dy: e.dy || 0, touch: e.touchCd || 0,
         fuse: e.behavior === 'bomber' && e.phase === 'fuse',
+        stun: e.stunT > 0 ? e.stunT : 0,       // aturdido: quieto, sin disparar ni pegar (enemy.js update, combat.js resolve)
         // Jefe (enemy.js:423-441): 'far' se aparta a < 170 px y te rodea a < 300; 'close' va a por ti a ×1,1
         // (×1,25 enfurecido); mientras lanza un ataque se queda quieto (sus avisos ya están en el suelo).
         bossMode: e.boss ? (e.ai && e.ai.cast ? 'cast' : e.ai ? e.ai.mode : 'close') : null, fury: e.ai && e.ai.fury ? 1.25 : 1
@@ -901,6 +1008,7 @@ G.Tactics = (() => {
       for (const f of foes) {
         if (f.dead) continue;
         f.touch -= SIM_DT;
+        if (f.stun > 0) { f.stun -= SIM_DT; continue; }                         // Onda Trueno, Tumba Rocas... (stunZone)
         const dx = px - f.x, dy = py - f.y, d = Math.hypot(dx, dy) || 1;
         if (f.fuse) { if ((f.pt -= SIM_DT) <= 0) f.dead = true; continue; }       // su aviso ya está en el suelo
         if (f.keeper) {

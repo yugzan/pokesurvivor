@@ -197,7 +197,8 @@ G.Autopilot = (() => {
   }
 
   function chooseSlot(pl, want, now, force = false) {
-    // ¿Lo ha cambiado otro? (Aprender un movimiento o fusionar también lo cambia: eso no cuenta.)
+    // ¿Lo ha cambiado otro? (Fusionar o el primer movimiento también lo cambian: eso no cuenta.
+    // Aprender uno ya no cambia de hueco desde el 18-10-2026: player.js addMove.)
     const sig = pl.slots.map(g => g.length).join(',');
     if (mySlot >= 0 && pl.active !== mySlot && sig === mySig && pl === myPl) holdSlot();
     mySlot = pl.active; mySig = sig; myPl = pl;
@@ -255,7 +256,7 @@ G.Autopilot = (() => {
     const hz = G.Hazards ? G.Hazards.all.filter(h => !h.hit) : [];
     const traps = facts ? facts.traps : [];
     const m = pl.activeMove && pl.activeMove();
-    const melee = !!m && (m.kind === 'melee' || m.kind === 'dash');
+    const melee = !!m && (m.kind === 'melee' || m.kind === 'dash' || m.kind === 'spin' || m.kind === 'shove');
     const ready = !m || m.kind === 'orbit' || m.t <= 0.15;
     // Objetivo de la táctica.
     let target = null;

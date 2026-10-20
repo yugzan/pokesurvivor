@@ -55,7 +55,7 @@ G.Agent = (() => {
 
   function current() {
     if (lv && lvOpen()) {
-      return { kind: 'levelup', rerolls: rerollsLeft(), cards: lv.list.map((c, i) => ({ index: i, key: c.key, type: c.type, title: c.title, desc: withDps(c), tag: c.tag })) };
+      return { kind: 'levelup', rerolls: rerollsLeft(), cards: lv.list.map((c, i) => ({ index: i, key: c.key, type: c.type, ...esNames(c), desc: withDps(c) })) };
     }
     if (bond && G.UI.isOpen('scr-bond')) {
       const { opt } = bond, step2 = bondStep2(), list = bondList();
@@ -101,6 +101,32 @@ G.Agent = (() => {
       const tail = ` [IA: daño/s a 1 enemigo ${f(a ? a.one : null, b.one)}, a 10 ${f(a ? a.group : null, b.group)}]`;
       return desc.length + tail.length <= 200 ? desc + tail : desc;
     } catch (e) { return desc; }
+  }
+
+  /**
+   * Título y etiqueta de una carta con los nombres de los movimientos en español, como player.moves y las
+   * preguntas a Jev: levelup.js los pasa por G.T(name, 'move') al idioma del jugador (19-10-2026).
+   * Se rehacen desde la clave (new:/up:/evo:/stat:) con los mismos datos que usa levelup.js; si algo no
+   * cuadra, se deja lo que trae la carta.
+   */
+  function esNames(c) {
+    const out = { title: c.title, tag: c.tag }, pl = G.Game.player;
+    try {
+      const [kind, id] = String(c.key || '').split(':');
+      const cur = pl && pl.moves.find(m => m.id === id);
+      if (kind === 'new' && G.Moves.BY_ID[id]) out.title = G.Moves.BY_ID[id].name;
+      else if (kind === 'up' && cur) out.title = cur.name;
+      else if (kind === 'evo' && cur) {
+        const ev = G.Moves.evoInfo(cur, pl.statsTaken) || (G.Moves.EVO[id] ? { name: G.Moves.EVO[id][0] } : null);
+        if (ev) out.title = cur.name + ' → ' + ev.name;
+      } else if (kind === 'stat' && pl && typeof c.tag === 'string' && c.tag.startsWith('Evoluciona ')) {
+        // levelup.js: el último movimiento que espera esta mejora para evolucionar (waiting[needs]).
+        let evoFor = null;
+        for (const m of pl.moves) { const ev = G.Moves.evoInfo(m, pl.statsTaken); if (ev && !ev.ready && ev.needs === id) evoFor = m; }
+        if (evoFor) out.tag = 'Evoluciona ' + evoFor.name;
+      }
+    } catch (e) { /* se queda como venía */ }
+    return out;
   }
 
   function rerollsLeft() {
@@ -314,6 +340,8 @@ G.Agent = (() => {
   function slotMove(m) {
     const o = { id: m.id, name: m.name, lv: m.lvl, type: m.type, kind: m.kind, cd: r1(m.cd * 100) / 100 };
     if (typeof m.range === 'number') o.range = Math.round(m.range);
+    // Onda por el suelo: llega a count·34 px + radius (combat.js reach, QSTEP), no sólo a su radio.
+    else if (m.kind === 'quake') o.range = Math.round((m.count || 1) * 34 + (m.radius || 0));
     if (typeof m.radius === 'number') o.radius = Math.round(m.radius);
     return o;
   }
