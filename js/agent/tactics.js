@@ -42,6 +42,11 @@
  *     del rastro TRAIL_ON (dependen de cómo te persiguen; no salen de una regla)
  *   - monotipo (19-10-2026): ×1,2 con los de su tipo si sólo tiene uno (player.js atkFor / MONO_K / monoType):
  *     entra solo porque dpsOn usa pl.atkFor(m)
+ *   - naturaleza (21-10-2026, systems/mons.js monFor): ±10 % a dos stats de pl.mon; entra sola por atkFor y G.Stats.taken
+ *   - habilidad (21-10-2026, data/ability-fx.js en pl.abil): × out(pl, m, e) al daño hecho, crítico ×critMul (si no
+ *     ×1,5), Potencia Bruta (sheer) quita quemadura y veneno y Dicha (serene) los dobla (combat.js abilOut/critMul/
+ *     statusK); statusCd a la recarga de los potenciadores (combat.js tickMove); al recibir (player.js hurt, no
+ *     "pure"): absorb de su tipo = 0, × (1 − dodge) de media y × inMul
  * Familias nuevas (combat.js del 2026-10-19, funciones por nombre; todas necesitan blanco: combat.js TARGETED):
  *   - homing: fireProjectiles con m.homing (se curvan al más cercano a < 340, projectile.js update) = proyectil
  *   - bounce: fireProjectiles; al dar, rebound salta al más cercano NO tocado a < 220 px del golpeado, `bounce`
@@ -207,7 +212,7 @@ G.Tactics = (() => {
   const MINE_ON = 0.5;                       // parte de las minas que pisan los perseguidores (medido, ver mine)
   const angDiff = (a, b) => Math.abs(((a - b + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
   const chases = e => !KEEPERS.includes(e.behavior) && (e.spd || 0) > 0;
-  const castEvery = (pl, m) => Math.max(0.05, m.cd * pl.cdMul);          // combat.js tickMove
+  const castEvery = (pl, m) => Math.max(0.05, m.cd * pl.cdMul * (m.kind === 'buff' && pl.abil && pl.abil.statusCd || 1));   // combat.js tickMove
 
   /**
    * Proyectil recto desde (ox, oy): suma w a los `cap` primeros que pilla (colisión barrida, combat.js resolve).
@@ -521,15 +526,18 @@ G.Tactics = (() => {
   function dpsOn(pl, moves, px, py, foes, o = {}) {
     const N = foes.length, per = new Float64Array(N), burnA = new Float64Array(N), burnH = new Float64Array(N);
     const poisA = new Float64Array(N), poisH = new Float64Array(N);
-    const crit = 1 + (pl.critChance || 0) * 0.5;
+    const ab = pl.abil || {};
+    const crit = 1 + (pl.critChance || 0) * ((ab.critMul || 1.5) - 1);
+    const sk = ab.sheer ? 0 : ab.serene ? 2 : 1;                         // combat.js statusK
     for (const m of moves) {
       if (!m.dmg) continue;
       const r = moveRates(pl, m, px, py, foes);
       for (let j = 0; j < N; j++) {
         if (!r.w[j]) continue;
-        per[j] += r.w[j] * m.dmg * pl.atkFor(m) * (o.prop ? 1 : typeK(m.type, foes[j]) * G.Stats.taken(foes[j].mon, m.cat) * crit);
-        if (m.burn) { burnA[j] += r.n[j] * m.burn; burnH[j] += r.n[j]; }
-        if (m.poison) { poisA[j] += r.n[j] * m.poison; poisH[j] += r.n[j]; }
+        const out = !o.prop && ab.out ? ab.out(pl, m, foes[j]) : 1;   // combat.js abilOut
+        per[j] += r.w[j] * m.dmg * pl.atkFor(m) * (o.prop ? 1 : typeK(m.type, foes[j]) * G.Stats.taken(foes[j].mon, m.cat) * crit * out);
+        if (m.burn && sk) { burnA[j] += r.n[j] * m.burn * sk; burnH[j] += r.n[j]; }
+        if (m.poison && sk) { poisA[j] += r.n[j] * m.poison * sk; poisH[j] += r.n[j]; }
       }
     }
     let total = 0;
@@ -905,6 +913,12 @@ G.Tactics = (() => {
     let a = amount;
     if (type) a *= G.Types.mult(type, pl.mon.types) * G.Weather.mult(type);
     if (pure) return Math.max(1, a);
+    const ab = pl.abil, cls = cat === 'physical' ? 'p' : cat === 'special' ? 's' : '';
+    if (ab) {
+      if (type && ab.absorb === type) return 0;                           // le cura (player.js hurt)
+      if (ab.dodge) a *= 1 - U.clamp(ab.dodge(pl, type, cls), 0, 1);       // esquiva: de media
+      if (ab.inMul) a *= ab.inMul(pl, type, cls);
+    }
     a *= G.Stats.taken(pl.mon, cat);
     const close = pl.activeGroup().some(m => m.kind === 'melee') ? 0.75 : 1;
     return Math.max(1, a * (1 - pl.reduction) * close);
