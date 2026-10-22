@@ -134,12 +134,30 @@ G.Coop = (() => {
     const m = g.find(x => x.kind === 'orbit') || g[0];
     return [r1(local.x), r1(local.y), r2(local.moveAngle), local.walking ? 1 : 0, r1(local.hp), r1(local.maxHp),
             local.dead ? 1 : 0, m ? m.id : '', m ? m.lvl : 1, r1(local.magnet), r2(local.aim), r2(local.xpMul),
-            r2(local.reviveT || 0), api.choosing && api.choosing() ? 1 : 0, doneSeq];
+            r2(local.reviveT || 0), api.choosing && api.choosing() ? 1 : 0, doneSeq, api.watching ? api.watching() : ''];
   }
 
+  /** Número que llega por la red: si no es un número de verdad vale `def`, y si se pasa se queda en el tope. */
+  const num = (v, def, lo, hi) => typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def;
+
+  // Lo que manda otro jugador no se cree a ciegas: un xpMul de 1e309 colgaba al anfitrión al subir de nivel.
   function readState(a) {
-    return { x: a[0], y: a[1], ang: a[2], walk: a[3], hp: a[4], maxHp: a[5], dead: a[6], mv: a[7], ml: a[8],
-             mag: a[9], aim: a[10], xpMul: a[11], rev: a[12], ch: a[13], ld: a[14] };
+    if (!Array.isArray(a)) a = [];
+    return { x: num(a[0], 0, -1e6, 1e6), y: num(a[1], 0, -1e6, 1e6), ang: num(a[2], 0, -10, 10), walk: a[3] ? 1 : 0,
+             hp: num(a[4], 0, 0, 1e6), maxHp: num(a[5], 1, 1, 1e6), dead: a[6] ? 1 : 0,
+             mv: typeof a[7] === 'string' ? a[7].slice(0, 40) : '', ml: num(a[8], 1, 1, 99),
+             mag: num(a[9], 0, 0, 5000), aim: num(a[10], 0, -10, 10), xpMul: num(a[11], 1, 0.1, 20),
+             rev: num(a[12], 0, 0, 60), ch: a[13] === undefined ? undefined : a[13] ? 1 : 0, ld: num(a[14], 0, 0, 1e9),
+             wa: typeof a[15] === 'string' ? a[15].slice(0, 64) : '' };
+  }
+
+  /** Anfitrión: dónde mira un invitado (él mismo, o el compañero vivo que mira estando caído). */
+  function viewOf(m) {
+    const w = m.pl.dead && m.pl.net && m.pl.net.wa;
+    if (!w) return m.pl;
+    if (w === me) return local.dead ? m.pl : local;
+    const o = mates.get(w);
+    return o && o.connected && !o.pl.dead ? o.pl : m.pl;
   }
 
   // ---------------- envío ----------------
@@ -154,7 +172,8 @@ G.Coop = (() => {
   function emitNear(ev, x, y, except) {
     for (const m of mates.values()) {
       if (!m.connected || m.uid === except) continue;
-      if (G.U.dist2(m.pl.x, m.pl.y, x, y) > 700 * 700) continue;
+      const v = viewOf(m);
+      if (G.U.dist2(v.x, v.y, x, y) > 700 * 700) continue;
       if (m.q.length > 400) continue;
       m.q.push(ev);
     }
@@ -167,7 +186,7 @@ G.Coop = (() => {
       if (e.dead || G.U.dist2(e.x, e.y, near.x, near.y) > r2n) continue;
       const a = ANIMS.indexOf(e.anim.cur);
       out.push([e.id, r1(e.x), r1(e.y), Math.ceil(e.hp), a < 0 ? 0 : a, e.anim.dir,
-                (e.burn > 0 ? 1 : 0) | (e.poison > 0 ? 2 : 0) | (e.shield > 0 ? 4 : 0)]);
+                (e.burn > 0 ? 1 : 0) | (e.poison > 0 ? 2 : 0) | (e.shield > 0 ? 4 : 0) | (e.slow > 0 ? 8 : 0)]);
     }
     return out;
   }
@@ -180,7 +199,7 @@ G.Coop = (() => {
     }
     const ev = m.q; m.q = [];
     const f = { k: 'f', t: r2(st.time), lv: st.level, xp: r2(st.xp), xn: st.xpNext, ki: st.kills, bo: st.bosses, co: st.coins, tk: [st.t1, st.t10],
-                p, e: enemyList(m.pl), ev };
+                p, e: enemyList(viewOf(m)), ev };
     const ja = G.Judgment.netState();       // Arceus en la Sentencia
     if (ja) f.ja = ja;
     // Siempre: quién está eligiendo y, si hay cartas de nivel, cuáles (ver arriba).
@@ -317,8 +336,13 @@ G.Coop = (() => {
     if (msg.ho) {
       const k = msg.ho.join('|');
       if (k !== lastHo) { lastHo = k; api.hold && api.hold(msg.ho); }
-      if (msg.lu && msg.lu[0] > seenSeq) { seenSeq = msg.lu[0]; api.levelStart(msg.lu[1]); }
-      else if (!msg.lu && api.inLevelUp && api.inLevelUp()) api.resume();
+      // Hay cartas abiertas que aún no has elegido y no las tienes delante (eran
+      // nuevas, o algo te las cerró al elegir muy deprisa): se abren otra vez.
+      // Antes sólo se miraba si eran nuevas y te podías quedar fuera de la ronda
+      // con los demás esperándote.
+      const showing = api.inLevelUp && api.inLevelUp();
+      if (msg.lu && msg.lu[0] > doneSeq && (msg.lu[0] > seenSeq || !showing)) { seenSeq = msg.lu[0]; api.levelStart(msg.lu[1]); }
+      else if (!msg.lu && showing) api.resume();
     }
     api.syncTeam({ time: msg.t, level: msg.lv, xp: msg.xp, xpNext: msg.xn, kills: msg.ki, bosses: msg.bo, coins: msg.co,
                    t1: (msg.tk || [])[0], t10: (msg.tk || [])[1] });
@@ -379,7 +403,9 @@ G.Coop = (() => {
       case 'wx': G.Weather.onEvent(ev); break;
       case 'ev': G.Events.onNet(ev); break;
       case 'hz': G.Hazards.add(ev[1], true); break;
-      case 'fxr': G.FX.ring(ev[1], ev[2], 8, ev[3], ev[4], 0.5, 3); break;
+      case 'fxr':
+        if (typeof ev[4] === 'string') G.FX.ring(num(ev[1], 0, -1e6, 1e6), num(ev[2], 0, -1e6, 1e6), 8, num(ev[3], 8, 0, 2000), ev[4], 0.5, 3);
+        break;
     }
   }
 
