@@ -4,10 +4,12 @@
  * en el top. Lo leído se guarda 2 h (ver ranking.js).
  * Las marcas con IA llevan 🤖 (la IA jugó) o 🧠 (la IA ayudó) y se pueden
  * ocultar ("Ocultar IA": sólo aquí, en este navegador).
+ * Dos mitades (23-10-2026): a la izquierda el daño a Arceus y a la derecha el
+ * tiempo aguantado. Salen de la misma lectura (el mismo resumen).
  */
 G.RankingUI = (() => {
   const $ = G.UI.$;
-  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const esc = G.U.esc;
   let mode = 's', period = 'w', scope = 'all', dex = null;
   let token = 0;
   const HIDE_AI = 'ps.rk.hideAi';
@@ -76,38 +78,56 @@ G.RankingUI = (() => {
     $('rk-scope').appendChild(hb);
   }
 
-  const fmt = t => t >= 3600 ? Math.floor(t / 3600) + ':' + G.U.mmss(t % 3600).padStart(5, '0') : G.U.mmss(t);
+  const fmt = G.U.hmmss;
 
   async function load() {
     const my = ++token;
-    const list = $('rk-list');
-    list.innerHTML = '<p class="sub">Cargando…</p>';
-    $('rk-me').innerHTML = '';
-    let rows = [], me = null, meAi = null;
+    const list = $('rk-list'), dlist = $('rk-dlist');
+    list.innerHTML = dlist.innerHTML = '<p class="sub">Cargando…</p>';
+    $('rk-me').innerHTML = $('rk-dme').innerHTML = '';
+    let rows = [], me = null, dmg = { rows: [], me: null }, meAi = null;
     try {
-      [rows, me, meAi] = await Promise.all([
+      [rows, me, dmg, meAi] = await Promise.all([
         G.Ranking.top(mode, period, dex, scope === 'friends'),
         G.Social.me ? G.Ranking.myRank(mode, period, dex) : Promise.resolve(null),
+        dex ? Promise.resolve(dmg) : G.Ranking.topDmg(mode, period, scope === 'friends'),
         G.Social.me && !hideAi ? G.Ranking.myRank(mode, period, dex, true) : Promise.resolve(null)
       ]);
     } catch (e) {
       if (my !== token) return;
-      list.innerHTML = '<p class="sub">No se pudo cargar el ranking (' + esc(e.code || e.message) + ').</p>';
+      list.innerHTML = dlist.innerHTML = '<p class="sub">No se pudo cargar el ranking (' + esc(e.code || e.message) + ').</p>';
       return;
     }
     if (my !== token) return;
-    list.innerHTML = '';
+    list.innerHTML = dlist.innerHTML = '';
     if (hideAi) {
       rows = rows.filter(r => !r.ai);
       // Tu puesto entre las marcas sin IA (si estás en la lista).
       if (me && me.row) { const i = rows.findIndex(r => r.id === me.row.id); if (i >= 0) me = Object.assign({}, me, { pos: i + 1 }); }
+      // Lo mismo en el daño a Arceus.
+      dmg = Object.assign({}, dmg, { rows: dmg.rows.filter(r => !r.ai) });
+      if (dmg.me && dmg.me.pos) { const i = dmg.rows.findIndex(r => r.uids.includes(G.Social.uid)); if (i >= 0) dmg.me = Object.assign({}, dmg.me, { pos: i + 1 }); }
     }
     if (!rows.length) {
-      list.innerHTML = '<p class="sub">Todavía no hay marcas aquí. ¡Sé el primero!</p>';
+      // Sólo amigos en diario, semanal y mensual: ahí sólo se guarda el top 50 (ranking.js).
+      list.innerHTML = scope === 'friends' && period !== 'a' && !dex
+        ? '<p class="sub">Ninguno de tus amigos está en el top 50 de este periodo. En Histórico salen todos.</p>'
+        : '<p class="sub">Todavía no hay marcas aquí. ¡Sé el primero!</p>';
     }
     const uid = G.Social.uid;
     const b = G.Ranking.board(mode, period, dex), done = G.Ranking.reported();
     rows.forEach((r, i) => list.appendChild(rowEl(r, i + 1, r.uids.includes(uid), b, done)));
+
+    // Daño a Arceus (no hay por Pokémon).
+    if (dex) dlist.innerHTML = '<p class="sub">El daño a Arceus no tiene ranking por Pokémon.</p>';
+    else if (!dmg.rows.length) dlist.innerHTML = '<p class="sub">Todavía nadie le ha hecho daño a Arceus aquí. ¡Llega al minuto 30 y pégale!</p>';
+    const db = G.Ranking.board(mode, period);
+    dmg.rows.forEach((r, i) => dlist.appendChild(rowEl(r, i + 1, r.uids.includes(uid), db, done, true)));
+    const dme = $('rk-dme');
+    dme.setAttribute('translate', 'no');
+    dme.textContent = dex || !dmg.me ? '' : dmg.me.out ? G.T('Aún no estás en el top 50 de daño.')
+      : G.I18n.f('Tu puesto: {x}', '#' + dmg.me.pos) + ' · ' + num(dmg.me.d);
+    dme.classList.toggle('hidden', !dme.textContent);
 
     // La frase se monta en cada idioma (traducirla por trozos sale rara).
     const lang = G.I18n.lang, en = lang === 'en', pos = '#' + (me && me.capped ? '1000+' : me && me.pos);
@@ -119,6 +139,7 @@ G.RankingUI = (() => {
         : me && me.out ? G.T('Aún no estás en el top 50. Tu puesto está en Histórico.')
         : me ? G.I18n.f('Tu mejor puesto: {x}', pos) + ' · ' + fmt(me.t)
         : G.T('Aún no tienes marca.');
+      aiLine(meAi);
       return;
     }
     const pn = en ? { d: 'today', w: 'this week', m: 'this month', y: 'this year', a: 'of all time' }[period]
@@ -155,7 +176,10 @@ G.RankingUI = (() => {
       `<br><span class="rk-ai-me" title="${esc(label)}">${ic} <span>Tu marca con IA:</span> <b class="gold">#${m.pos}</b> · ${fmt(m.t)}</span>`);
   }
 
-  function rowEl(r, pos, mine, b, done) {
+  const num = n => (n || 0).toLocaleString(G.I18n.locale);
+
+  /** Una fila: de tiempo o, con dmg, de daño a Arceus. */
+  function rowEl(r, pos, mine, b, done, dmg = false) {
     const el = document.createElement('div');
     el.className = 'rk-row' + (mine ? ' mine' : '') + (pos <= 3 ? ' top' + pos : '');
     el.insertAdjacentHTML('beforeend', `<span class="pos">${pos <= 3 ? G.Icons.html('trophy', 20) : ''}${pos}</span>`);
@@ -165,8 +189,8 @@ G.RankingUI = (() => {
     el.appendChild(mons);
     const am = AI_MARK[r.ai];
     el.insertAdjacentHTML('beforeend',
-      `<span class="who"><b translate="no">${am ? `<span class="rk-ai" title="${esc(am[1])}">${am[0]}</span> ` : ''}${r.names.map((n, i) => `<a href="#" class="plink" data-u="${esc(r.uids[i] || '')}">${esc(n)}</a>`).join(' · ')}</b><small>${am ? esc(am[1]) + ' · ' : ''}Nv. ${r.lv || 1} · ${(r.kills || 0).toLocaleString(G.I18n.locale)} derrotados</small></span>
-       <span class="time">${fmt(r.t)}</span>`);
+      `<span class="who"><b translate="no">${am ? `<span class="rk-ai" title="${esc(am[1])}">${am[0]}</span> ` : ''}${r.names.map((n, i) => `<a href="#" class="plink" data-u="${esc(r.uids[i] || '')}">${esc(n)}</a>`).join(' · ')}</b>${dmg ? (am ? `<small>${esc(am[1])}</small>` : '') : `<small>${am ? esc(am[1]) + ' · ' : ''}Nv. ${r.lv || 1} · ${num(r.kills)} derrotados</small>`}</span>
+       <span class="time">${dmg ? num(r.d) : fmt(r.t)}</span>`);
     el.querySelectorAll('.plink').forEach(a => { a.onclick = e => { e.preventDefault(); G.ProfileUI.show(a.dataset.u); }; });
     // Reportar una marca sospechosa (no la tuya). Lo revisa el admin (mod-ui.js).
     if (!mine && G.Social.me) {

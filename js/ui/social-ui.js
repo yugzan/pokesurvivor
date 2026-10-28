@@ -1,7 +1,7 @@
 /* ============ social-ui.js — apodo, amigos, sala e invitaciones ============ */
 (() => {
   const $ = G.UI.$;
-  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const esc = G.U.esc;
 
   /** ¿Se puede usar lo online? Si no, explica por qué. */
   function needOnline() {
@@ -154,7 +154,9 @@
         const room = G.Social.room;
         if (room) {
           G.Net.open(room.id, room.isHost, room.host);
-          G.Net.syncMembers(room.members.map(m => m.uid));
+          // En partida la lista de la sala no echa a nadie (puede faltar alguien un
+          // momento por un corte con la base de datos): manda el canal directo.
+          if (!G.Coop.active && !room.lost) G.Net.syncMembers(room.members.map(m => m.uid));
         } else if (G.Net.open_) G.Net.close();
         if (what === 'room-closed') {
           G.UI.toast('La sala se ha cerrado', 2600);
@@ -254,7 +256,7 @@
       const room = G.Social.room;
       if (!room || !room.isHost || room.members.length < 2) return;
       const cfg = {
-        k: 'start', seed: Math.floor(Math.random() * 1e6), host: room.host,
+        k: 'start', seed: Math.floor(Math.random() * 1e6), host: room.host, hw: G.Halloween.on,   // hw: ¿partida de Halloween?
         members: room.members.map(m => ({ uid: m.uid, name: m.name, dex: m.dex, shiny: !!m.shiny }))
       };
       G.Social.setOpen(false);

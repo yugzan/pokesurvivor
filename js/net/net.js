@@ -33,6 +33,12 @@ G.Net = (() => {
   // junta ('failed') y el anfitrión lo reintenta cada RETRY_MS. Por la base de datos
   // sólo pasa la señalización (unos pocos mensajes pequeños para conectarse).
   const ALLOW_RELAY = false, RETRY_MS = 15000;
+  const ICE_BATCH = 250, ICE_MAX = 40;    // candidatos: se juntan 250 ms (o 40) en un mensaje (ver newPeer)
+  // Lo que puede quedar por salir en el canal. El canal no pierde nada y va en orden:
+  // si la conexión da menos de lo que se manda, lo de más se queda en cola y el otro lo
+  // ve cada vez más tarde (27-10-2026: una invitada iba 4 min y 40 s por detrás). Con
+  // más que esto en cola, coop.js espera en vez de mandar (ver busy).
+  const BUSY_BYTES = 64 * 1024;
 
 
   let rtdb = null, uid = null, roomId = null, isHost = false, hostUid = null;
@@ -48,10 +54,16 @@ G.Net = (() => {
     sentBytes: 0, jsonBytes: 0, recvBytes: 0, binarySent: 0, binaryRecv: 0, invalidBinary: 0 };
 
   // ---------------- TURN propio ----------------
-  // Credenciales temporales (2 h) por cuenta. Se guardan hasta 10 min antes de
-  // caducar; si el servidor no las da (cuenta no autorizada, caído, sin red), no
-  // se vuelve a preguntar en un rato y se juega sólo con STUN.
+  // Credenciales temporales (2 h) por cuenta. Una conexión por el TURN deja de
+  // funcionar cuando caducan las suyas (el servidor ya no le renueva el hueco), así
+  // que sólo se reutilizan si les queda más que una partida larga (TURN_KEEP) o si
+  // acaban de llegar (TURN_FRESH: unas nuevas no durarían más). Se piden ya al
+  // entrar en la sala (open): el servidor puede tardar varios segundos y, si se
+  // esperaba al primer fallo, el reintento salía sin ellas. Si no las da (cuenta no
+  // autorizada, caído, sin red), se juega sólo con STUN y se vuelve a preguntar al
+  // poco (a la media hora si la cuenta no tiene TURN).
   let turn = null, turnUid = null, turnAsk = null, turnRetry = 0;
+  const TURN_KEEP = 80 * 60000, TURN_FRESH = 2 * 60000, TURN_WAIT = 10000;
 
   function cleanIce(list) {
     if (!Array.isArray(list)) return [];
@@ -72,7 +84,7 @@ G.Net = (() => {
   function turnNow() {
     const user = turnUser();
     if (!user) return [];
-    if (turn && turnUid === user.uid && turn.expiresAt * 1000 - Date.now() > 600000) return turn.iceServers;
+    if (turn && turnUid === user.uid && (turn.expiresAt * 1000 - Date.now() > TURN_KEEP || Date.now() - turn.at < TURN_FRESH)) return turn.iceServers;
     return Date.now() < turnRetry ? [] : null;
   }
 
@@ -81,16 +93,16 @@ G.Net = (() => {
     if (now) return Promise.resolve(now);
     if (!turnAsk) {
       turnAsk = (async () => {
-        const ctl = new AbortController(), stop = setTimeout(() => ctl.abort(), 4000);
+        const ctl = new AbortController(), stop = setTimeout(() => ctl.abort(), TURN_WAIT);
         try {
           const token = await user.getIdToken();
           const r = await fetch(TURN_API, { method: 'POST', headers: { Authorization: 'Bearer ' + token }, signal: ctl.signal });
-          // 403: esta cuenta no tiene TURN (todavía); no insistir en media hora.
-          if (!r.ok) { turnRetry = Date.now() + (r.status === 403 ? 1800000 : 60000); return; }
+          // 403: esta cuenta no tiene TURN (todavía); no insistir en media hora. 429: demasiadas, en un minuto.
+          if (!r.ok) { turnRetry = Date.now() + (r.status === 403 ? 1800000 : r.status === 429 ? 60000 : 10000); return; }
           const j = await r.json(), iceServers = cleanIce(j && j.iceServers);
-          if (!iceServers.length || !(j.expiresAt * 1000 > Date.now())) { turnRetry = Date.now() + 60000; return; }
-          turn = { iceServers, expiresAt: j.expiresAt }; turnUid = user.uid;
-        } catch (e) { turnRetry = Date.now() + 60000; }
+          if (!iceServers.length || !(j.expiresAt * 1000 > Date.now())) { turnRetry = Date.now() + 10000; return; }
+          turn = { iceServers, expiresAt: j.expiresAt, at: Date.now() }; turnUid = user.uid;
+        } catch (e) { turnRetry = Date.now() + 10000; }
         finally { clearTimeout(stop); turnAsk = null; }
       })();
     }
@@ -140,6 +152,7 @@ G.Net = (() => {
       p.timer = setTimeout(() => { if (p.mode === 'connecting') { p.mode = ALLOW_RELAY ? 'relay' : 'failed'; emitPeer(hostId); } }, DIRECT_TIMEOUT + TURN_TIMEOUT + 3000);
       peers.set(hostId, p);
     }
+    if (turnNow() === null) turnServers();
   }
 
   function close() {
@@ -163,14 +176,30 @@ G.Net = (() => {
 
   // ---------------- WebRTC ----------------
 
-  function newPeer(u, turnIce) {
-    const p = { pc: null, dc: null, mode: 'connecting', timer: 0, viaTurn: false, turn: !!(turnIce && turnIce.length) };
+  /** `withTurn`: intento con TURN (el de cualquiera de los dos; turnIce son los nuestros, si los hay). */
+  function newPeer(u, turnIce, withTurn) {
+    const p = { pc: null, dc: null, mode: 'connecting', timer: 0, viaTurn: false, turn: !!(withTurn || (turnIce && turnIce.length)) };
     peers.set(u, p);
     // Sin WebRTC (navegador antiguo o bloqueado): directamente por el relé.
     let pc;
     try { pc = p.pc = new RTCPeerConnection({ iceServers: ICE.concat(turnIce || []) }); }
     catch (e) { p.mode = 'relay'; emitPeer(u); return p; }
-    pc.onicecandidate = e => { if (e.candidate) signal(u, { c: e.candidate.toJSON() }); };
+    /*
+     * Los candidatos de conexión se juntan ICE_BATCH ms y van en un solo mensaje
+     * ({ cs: [...] }), y en cuanto no hay más (candidate null), al momento.
+     * Antes iba uno por mensaje: unos 4.000 por minuto por la base de datos
+     * (25-10-2026), lo que más se descargaba de ella. Quien recibe entiende los
+     * dos (las versiones de antes mandan { c }).
+     */
+    const iceOut = [];
+    let iceT = 0;
+    const flushIce = () => { clearTimeout(iceT); iceT = 0; if (iceOut.length && peers.get(u) === p) signal(u, { cs: iceOut.splice(0) }); };
+    pc.onicecandidate = e => {
+      if (!e.candidate) { flushIce(); return; }
+      iceOut.push(e.candidate.toJSON());
+      if (iceOut.length >= ICE_MAX) flushIce();
+      else if (!iceT) iceT = setTimeout(flushIce, ICE_BATCH);
+    };
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'failed' && p.mode !== 'closed') useRelay(u);
     };
@@ -224,8 +253,9 @@ G.Net = (() => {
     try { if (p.pc) p.pc.close(); } catch (e) { /* nada */ }
     emitPeer(u);
     if (!isHost) return;
-    // Primer fallo sin TURN: se reintenta ya, esta vez con él (si la cuenta lo tiene).
-    const withTurn = !p.turn && !needTurn.has(u) && !!turnUser();
+    // Primer fallo sin TURN: se reintenta ya, esta vez con él. Basta con que lo tenga
+    // uno de los dos: si el anfitrión no consigue el suyo, el invitado pone el propio.
+    const withTurn = !p.turn && !needTurn.has(u);
     if (withTurn) needTurn.add(u);
     p.timer = setTimeout(() => { if (peers.get(u) === p && p.mode === 'failed' && roomId) { drop(u, true); connect(u); } }, withTurn ? 0 : RETRY_MS);
   }
@@ -233,18 +263,20 @@ G.Net = (() => {
   /** Anfitrión: abre conexión con un invitado. */
   async function connect(u) {
     if (!roomId || peers.has(u)) return;
-    let turnIce = turnFirst(u) ? turnNow() : [];
+    const withTurn = turnFirst(u);
+    let turnIce = withTurn ? turnNow() : [];
     if (!turnIce) {
       const room = roomId; turnIce = await turnServers();
       if (roomId !== room || peers.has(u)) return;
     }
-    const p = newPeer(u, turnIce);
+    const p = newPeer(u, turnIce, withTurn);
     if (!p.pc) return;
     wireChannel(u, p, p.pc.createDataChannel('g', { ordered: true }));
     try {
       const offer = await p.pc.createOffer();
       await p.pc.setLocalDescription(offer);
-      // t: el invitado también usa el TURN en este intento (las versiones viejas lo ignoran).
+      // t: el invitado también usa el TURN en este intento, aunque el anfitrión no
+      // tenga el suyo (las versiones viejas lo ignoran).
       signal(u, p.turn ? { sdp: p.pc.localDescription.toJSON(), t: 1 } : { sdp: p.pc.localDescription.toJSON() });
     } catch (e) { useRelay(u); }
   }
@@ -263,7 +295,7 @@ G.Net = (() => {
           p = peers.get(from);
         }
         if (p) drop(from, true);
-        p = newPeer(from, turnIce);
+        p = newPeer(from, turnIce, !!sig.t);
         if (!p.pc) return;
         p.pc.ondatachannel = e => wireChannel(from, p, e.channel);
         await p.pc.setRemoteDescription(sig.sdp);
@@ -274,9 +306,11 @@ G.Net = (() => {
         pendingIce.delete(from);
       } else if (sig.sdp && sig.sdp.type === 'answer') {
         if (p && p.pc) await p.pc.setRemoteDescription(sig.sdp);
-      } else if (sig.c) {
-        if (p && p.pc && p.pc.remoteDescription) await p.pc.addIceCandidate(sig.c).catch(() => {});
-        else { if (!pendingIce.has(from)) pendingIce.set(from, []); pendingIce.get(from).push(sig.c); }
+      } else if (sig.c || Array.isArray(sig.cs)) {
+        for (const c of sig.cs || [sig.c]) {
+          if (p && p.pc && p.pc.remoteDescription) await p.pc.addIceCandidate(c).catch(() => {});
+          else { if (!pendingIce.has(from)) pendingIce.set(from, []); pendingIce.get(from).push(c); }
+        }
       }
     } catch (e) {
       console.warn('[Net] señalización:', e.message);
@@ -299,9 +333,18 @@ G.Net = (() => {
 
   // ---------------- envío / recepción ----------------
 
+  /*
+   * Cada remitente tiene 100 huecos por destinatario (tuUid_00 ... tuUid_99) y
+   * los va usando en orden; quien recibe borra cada mensaje al leerlo. Antes cada
+   * mensaje era nuevo (push) y sin tope de tamaño, y el 23-10-2026 se llenó la
+   * base de datos de basura (ver social.js, createRoom). Las reglas
+   * (database.rules.json) sólo admiten estos huecos y mensajes de hasta 16.000.
+   */
+  let slot = 0;
   function relayPush(to, env) {
     if (!rtdb || !roomId) return;
-    rtdb.ref('rooms/' + roomId + '/q/' + to).push(JSON.stringify(env)).catch(e => console.warn('[Net] relé:', e.code || e.message));
+    const key = uid + '_' + String(slot++ % 100).padStart(2, '0');
+    rtdb.ref('rooms/' + roomId + '/q/' + to + '/' + key).set(JSON.stringify(env)).catch(e => console.warn('[Net] relé:', e.code || e.message));
   }
 
   function send(to, msg) {
@@ -345,6 +388,8 @@ G.Net = (() => {
     viaTurn(u) { const p = peers.get(u); return !!(p && p.mode === 'direct' && p.viaTurn); },
     /** ¿Va por el relé (o no hay conexión)? Entonces se manda menos a menudo. */
     slow(u) { const p = peers.get(u); return !p || p.mode !== 'direct'; },
+    /** ¿Le queda mucho por salir? Entonces mejor esperar que mandar más (ver BUSY_BYTES). */
+    busy(u) { const p = peers.get(u); return !!(p && p.dc && p.dc.readyState === 'open' && p.dc.bufferedAmount > BUSY_BYTES); },
     peers() { return [...peers.keys()]; },
     get open_() { return !!roomId; },
     get isHost() { return isHost; },

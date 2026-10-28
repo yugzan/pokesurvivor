@@ -41,6 +41,10 @@
    */
   const PCT_REF = 60000;
   const pctHp = e => (e.maxHp <= PCT_REF ? e.maxHp : PCT_REF * Math.sqrt(e.maxHp / PCT_REF));
+  // En la Sentencia (23-10-2026), veneno y quemadura quitan poco y siempre lo
+  // mismo (ni % de la vida ni según tu nivel): envenenar y huir no sirve para
+  // tumbar a los legendarios; hay que pegarles. A Arceus no le afectan.
+  const JUDGE_DOT = 1.5;
 
   class Enemy {
     constructor(def, x, y, sc, boss = false) {
@@ -124,6 +128,14 @@
     hurt(amount, color = '#fff', dirX = 0, dirY = 0, knock = 0, eff = null) {
       if (this.dead) return;
       const d = Math.max(1, Math.round(amount));
+      // Arceus en la Sentencia: no cae nunca; el golpe suma a su cuenta de daño
+      // (la lleva quien manda: el invitado se lo manda al anfitrión).
+      if (this.arceus) {
+        if (this.remote) G.Coop.hit(this, d, color, 0, 0, 0);
+        else { G.Judgment.hitArceus(d); if (G.Coop.isHost) G.Coop.hurtShown(this, d, color); }
+        this.showHurt(d, color, dirX, dirY, eff);
+        return;
+      }
       // Copia de un enemigo del anfitrión: el golpe se le manda a él, que es
       // quien decide si cae. Aquí sólo se ve (número, destello y animación).
       if (this.remote) {
@@ -165,20 +177,30 @@
 
     /** Aturdido: se queda quieto y no ataca `dur` s (Onda Trueno, Tumba Rocas...). */
     applyStun(dur) {
+      if (this.arceus) return;          // (a Arceus no le afectan los estados)
       if (this.remote) { G.Coop.status(this, 't', dur); return; }
       this.stunT = Math.max(this.stunT || 0, dur);
     }
 
+    /** Dormido (Soporesfera): quieto, sin atacar ni hacer daño al tocarte, aunque le peguen. */
+    applySleep(dur) {
+      if (this.remote || this.arceus) return;
+      this.sleepT = Math.max(this.sleepT || 0, dur);
+    }
+
     applySlow(factor, dur = 1.2) {
+      if (this.arceus) return;
       if (this.remote) { G.Coop.status(this, 's', factor); return; }
       this.slow = Math.max(this.slow, factor);
       this.slowT = Math.max(this.slowT, dur);
     }
     applyBurn(stacks = 1) {
+      if (this.arceus) return;
       if (this.remote) { G.Coop.status(this, 'b', stacks); return; }
       this.burn = Math.min(8, this.burn + stacks); this.burnT = 3;
     }
     applyPoison(stacks = 1) {
+      if (this.arceus) return;
       if (this.remote) { G.Coop.status(this, 'p', stacks); return; }
       this.poison = Math.min(8, this.poison + stacks); this.poisonT = 4;
     }
@@ -207,6 +229,11 @@
         G.Pickups.drop('item', this.x - 26, this.y - 10, G.Items.roll());
       }
       G.Pickups.dropXp(this.x, this.y, this.xp, this.boss, !!this.legend, !!this.judge);
+      // Halloween: caramelos, con el ritmo que deja systems/halloween.js (los Fantasma
+      // en cuanto toca; los demás, sólo si se han ido acumulando).
+      if (G.Halloween.inRun && !this.judge && G.Halloween.takeCandy(G.Game.st.time, (this.types || []).includes('ghost') ? 1 : 3)) {
+        G.Pickups.drop('candy', this.x + G.U.rand(-8, 8), this.y - 6, 1);
+      }
       if (this.golden && Math.random() < 0.35) G.Pickups.drop('coin', this.x + 6, this.y - 4, 3);
       // Duende del tesoro: Meowth suelta monedas; Gholdengo, un ticket ×10.
       if (this.behavior === 'thief') {
@@ -286,12 +313,12 @@
       if (this.slowT > 0) { this.slowT -= dt; if (this.slowT <= 0) this.slow = 0; }
       if (this.burn > 0) {
         this.burnT -= dt; this.burnTick -= dt;
-        if (this.burnTick <= 0) { this.burnTick = 0.5; this.hurt(1.6 * this.burn * (1 + pl.level * 0.06), '#ff9a4d'); }
+        if (this.burnTick <= 0) { this.burnTick = 0.5; this.hurt(this.judge ? JUDGE_DOT * this.burn : 1.6 * this.burn * (1 + pl.level * 0.06), '#ff9a4d'); }
         if (this.burnT <= 0) this.burn = 0;
       }
       if (this.poison > 0) {
         this.poisonT -= dt; this.poisonTick -= dt;
-        if (this.poisonTick <= 0) { this.poisonTick = 0.6; this.hurt(pctHp(this) * 0.012 * this.poison + 1, '#d47cf0'); }
+        if (this.poisonTick <= 0) { this.poisonTick = 0.6; this.hurt(this.judge ? JUDGE_DOT * this.poison : pctHp(this) * 0.012 * this.poison + 1, '#d47cf0'); }
         if (this.poisonT <= 0) this.poison = 0;
       }
       if (this.dead) return;
@@ -308,6 +335,13 @@
         } else if (le.slow) terrainMul = le.slow < 0.5 ? 0.45 : 0.55;
       }
 
+      if (this.sleepT > 0) {
+        // Dormido no anda, pero un empujón (Rafagaesfera) sí lo mueve.
+        this.sleepT -= dt; this.anim.loop('Idle');
+        this.x += this.kx * dt; this.y += this.ky * dt;
+        this.kx *= Math.pow(0.0015, dt); this.ky *= Math.pow(0.0015, dt);
+        return;
+      }
       if (this.stunT > 0) { this.stunT -= dt; this.anim.loop('Idle'); return; }
 
       const spd = this.spd * (1 - this.slow) * terrainMul * G.Weather.speedFor(this.types);
@@ -751,6 +785,22 @@
         }
       }
 
+      // Dormido: zetas que suben (en cooperativo, del anfitrión: bit 16).
+      if (this.sleepT > 0 || (this.net && this.net.st & 16)) {
+        const now = performance.now() / 1000;
+        ctx.save();
+        ctx.textAlign = 'center';
+        for (let i = 0; i < 2; i++) {
+          const k = (now * 0.7 + i * 0.5) % 1;
+          ctx.globalAlpha = 1 - k;
+          ctx.font = '700 ' + (7 + k * 5).toFixed(1) + 'px Pixelify,"Segoe UI",sans-serif';
+          ctx.fillStyle = '#c9b8ff'; ctx.strokeStyle = '#1b1528'; ctx.lineWidth = 2;
+          const zx = this.x + 6 + k * 8, zy = this.y - lift - this.bodyH - 4 - k * 14;
+          ctx.strokeText('Z', zx, zy); ctx.fillText('Z', zx, zy);
+        }
+        ctx.restore();
+      }
+
       // Escudo: burbuja azul.
       if (this.shield > 0 || (this.net && this.net.st & 4)) {
         ctx.save();
@@ -815,6 +865,7 @@
       e.remote = true;
       if (o.shiny) e.makeShiny();
       e.maxHp = o.hp; e.hp = o.hp;
+      if (o.beh === 'arceus') G.Judgment.dress(e);
       e.net = { x: o.x, y: o.y, vx: 0, vy: 0, age: 0, dir: 0, anim: 0, st: 0 };
       list.push(e);
       byId.set(e.id, e);
@@ -919,11 +970,11 @@
       }
     }
 
-    /** El jugador vivo más cercano (los caídos no atraen a nadie). */
+    /** El jugador vivo más cercano (los caídos no atraen a nadie, ni el compañero sin conexión: coop.js). */
     function nearestPlayer(players, x, y) {
       let best = null, bd = Infinity;
       for (const p of players) {
-        if (p.dead) continue;
+        if (p.dead || p.silent) continue;
         const d = G.U.dist2(x, y, p.x, p.y);
         if (d < bd) { bd = d; best = p; }
       }
@@ -937,10 +988,16 @@
     // Segundos que un rezagado tiene que llevar fuera de la vista antes de volver por delante.
     const LAG_T = 2.5;
     const BOSS_FAR = 2500;    // jefe más lejos que esto de todos: se ha perdido (ver update)
+    const FAR = 1400;         // enemigo normal más lejos que esto: vuelve a salir cerca (ver update)
+    // Con una ventana muy alargada (#350, 1587 × 188) los enemigos salen a más de
+    // 1400 y se recolocaban en cada fotograma sin acercarse nunca: parecía que ya
+    // no salía ninguno. "Lejos" es siempre algo más que donde salen.
+    const farFor = base => Math.max(base, G.Spawner.outR() + 300);
 
     function update(dt, players) {
       if (!Array.isArray(players)) players = [players];
       const pl = players[0];
+      const far = farFor(FAR), bossFar = farFor(BOSS_FAR);
       // Velocidad suavizada de cada jugador (vale también para los compañeros).
       for (const p of players) {
         if (p._px != null && dt > 0) {
@@ -983,10 +1040,10 @@
         // grieta, o se quedó atrás): a los 4 s vuelve a salir cerca, fuera de la vista.
         // Si no, no se le encontraba y, con un jefe vivo, no salen grietas.
         if (e.boss && !e.judge && !G.Rift.inArena) {
-          e.lagT = G.U.dist2(e.x, e.y, near.x, near.y) > BOSS_FAR * BOSS_FAR ? e.lagT + dt : 0;
+          e.lagT = G.U.dist2(e.x, e.y, near.x, near.y) > bossFar * bossFar ? e.lagT + dt : 0;
           if (e.lagT > 4) { e.lagT = 0; G.Spawner.ahead(e, near); }
         }
-        if (e.boss || e.shiny || G.Rift.inArena) continue;
+        if (e.boss || e.shiny || e.arceus || G.Rift.inArena) continue;
         // Rezagados: los que se quedan atrás mientras corres y llevan un rato
         // FUERA DE LA VISTA (de todos) vuelven a salir por delante de ti. Así
         // no se puede huir sin más, y nunca desaparece uno que estés viendo.
@@ -997,7 +1054,7 @@
         const behind = sp > 40 && ((e.x - near.x) * near._vx + (e.y - near.y) * near._vy) < -0.2 * Math.sqrt(d2) * sp;
         if (unseen && behind) e.lagT += dt;
         else if (!unseen) e.lagT = 0;
-        if ((unseen && e.lagT > LAG_T) || d2 > 1400 * 1400) {
+        if ((unseen && e.lagT > LAG_T) || d2 > far * far) {
           e.lagT = 0;
           if (!G.Spawner.ahead(e, near)) { list.splice(i, 1); byId.delete(e.id); if (G.Coop.isHost) G.Coop.enemyGone(e, false); }
         }
@@ -1013,7 +1070,7 @@
     function drawables(cam) {
       const out = [];
       for (const e of corpses) if (cam.sees(e.x, e.y, 80)) out.push(e);
-      for (const e of list) if (cam.sees(e.x, e.y, 80)) out.push(e);
+      for (const e of list) if (!e.arceus && cam.sees(e.x, e.y, 80)) out.push(e);   // (Arceus lo dibuja judgment.js)
       return out;
     }
 
