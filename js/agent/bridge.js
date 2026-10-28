@@ -117,7 +117,7 @@ G.Agent = (() => {
       if (kind === 'new' && G.Moves.BY_ID[id]) out.title = G.Moves.BY_ID[id].name;
       else if (kind === 'up' && cur) out.title = cur.name;
       else if (kind === 'evo' && cur) {
-        const ev = G.Moves.evoInfo(cur, pl.statsTaken) || (G.Moves.EVO[id] ? { name: G.Moves.EVO[id][0] } : null);
+        const ev = G.Moves.evoInfo(cur, pl.statsTaken) || (G.Moves.EVO[id] ? { name: (cur.baseName || cur.name) + ' +' } : null);
         if (ev) out.title = cur.name + ' → ' + ev.name;
       } else if (kind === 'stat' && pl && typeof c.tag === 'string' && c.tag.startsWith('Evoluciona ')) {
         // levelup.js: el último movimiento que espera esta mejora para evolucionar (waiting[needs]).
