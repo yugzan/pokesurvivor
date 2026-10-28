@@ -8,17 +8,19 @@
  *      (Ruinas del Juicio). Arceus baja del cielo por un pilar de luz y cae
  *      con una onda de choque. La primera vez se ve entera; después se puede
  *      saltar (en cooperativo sólo el anfitrión).
- *   2. Pelea: Arceus es INVENCIBLE (no es un enemigo: los ataques no le
- *      apuntan). Te persigue cada vez más deprisa; tocarle quita el 40 % de la
- *      vida y lanza la Sentencia (pilares de luz), rayos en cruz y ondas, todo
- *      con aviso en el suelo. Ese daño ignora tipos y defensa.
- *   3. Cada 5 s acude un legendario al azar, cada uno con el DOBLE de vida y de
- *      daño que el anterior. El primero, según el daño que hacíais antes de la
- *      Sentencia a UN enemigo (unos 3 s), para que no caiga al momento.
+ *   2. Pelea: Arceus es INVENCIBLE. Te persigue cada vez más deprisa; tocarle
+ *      quita el 40 % de la vida y lanza la Sentencia (pilares de luz), rayos en
+ *      cruz y ondas, todo con aviso en el suelo. Ese daño ignora tipos y defensa.
+ *      Desde el 23-10-2026 se le puede pegar (ranking de daño a Arceus): lleva
+ *      una Tabla al azar en cada partida, que le da su tipo (así los ataques de
+ *      Lucha no son siempre los mejores), y sólo recibe un poco (ver dmgK). Los
+ *      ataques le apuntan sólo cuando no queda ningún legendario.
+ *   3. Cada 5 s acude un legendario al azar, cada uno con un 25 % más de vida
+ *      (y un 15 % más de daño) que el anterior (hasta el 23-10 era el doble y
+ *      no había forma de tumbarlos). El primero, según el daño que hacíais antes
+ *      de la Sentencia a UN enemigo (unos 3 s), para que no caiga al momento.
  *      Dan experiencia, pero nada más (ni monedas, ni tickets, ni objetos).
- *   4. Sin límite de tiempo: por muy fuerte que vayas (curación sin tope,
- *      defensa...), los legendarios que se acumulan, cada uno el doble de
- *      fuertes, acaban contigo (el 8.º ya pega 128 veces más que el 1.º).
+ *   4. En el minuto 35 Arceus rompe el objeto de todos (Banda Focus incluida).
  *
  * Mientras dura no sale nada más (ni oleadas, ni eventos, ni grietas; desde
  * el 28:00 ya no se abren grietas). Si a las 30:00 estás en una grieta o
@@ -46,20 +48,50 @@ G.Judgment = (() => {
   const SPD_SOFT = 130, SPD_OVER = 0.25;
   const capSpd = s => (s <= SPD_SOFT ? s : SPD_SOFT + (s - SPD_SOFT) * SPD_OVER);
   const touchPct = () => Math.min(1, TOUCH + Math.max(0, arenaT - 420) / 180 * (1 - TOUCH));
-  const ARCEUS = 493, SCALE = 1.5;
+  /*
+   * Daño a Arceus: recibe el 5 % de lo que le hacéis, y cada vez menos (el 1 %
+   * a los 10 min de Sentencia), para que el ranking no tenga números enormes.
+   */
+  const dmgK = () => 0.05 / (1 + arenaT / 150);
+  const HP_GROW = 1.25, DMG_GROW = 1.15;      // cada legendario, respecto al anterior
+  const BREAK_AT = 35 * 60, BREAK_T = 1.6;    // rompe los objetos (minuto de la partida; s de aviso)
+  // Las Tablas: una al azar en cada partida le da su tipo.
+  const PLATES = {
+    fire: 'Tabla Llama', water: 'Tabla Linfa', electric: 'Tabla Trueno', grass: 'Tabla Pradal',
+    ice: 'Tabla Helada', fighting: 'Tabla Fuerte', poison: 'Tabla Tóxica', ground: 'Tabla Terrax',
+    flying: 'Tabla Cielo', psychic: 'Tabla Mental', bug: 'Tabla Bicho', rock: 'Tabla Pétrea',
+    ghost: 'Tabla Terror', dragon: 'Tabla Draco', dark: 'Tabla Oscura', steel: 'Tabla Acero', fairy: 'Tabla Duende'
+  };
+  /*
+   * Quién protagoniza la Sentencia. Del 30-10 al 1-11 (systems/halloween.js), en
+   * vez de Arceus, el gran Gengar bruja (sombrero y capa: core/skins.js), de
+   * tipo Fantasma y sin Tablas; todo lo demás igual. En grupo lo dice el
+   * anfitrión (cfg.hw), así todos ven el mismo.
+   */
+  const ARCEUS_B = { dex: 493, scale: 1.5, name: 'Arceus', skin: null, col: '#ffd25e', pale: '#fff3c8', glow: '#ffcf4a',
+                     rgb: '255,210,94', rgb2: '255,248,220', t1: 'LA SENTENCIA', t2: 'DE ARCEUS', sub: 'El tiempo se ha agotado…',
+                     landed: '¡ARCEUS HA DESCENDIDO!', dmg: 'DAÑO A ARCEUS · {x}', breaks: '¡Arceus va a romper vuestros objetos!',
+                     gems: ['#ff6b4d', '#4fa8ff', '#5fe08a', '#ffe14d', '#b37bff', '#c9d2de'] };
+  const GENGAR_B = { dex: 94, scale: 3, name: 'Gengar', skin: 'bruja-gengar', col: '#b46bff', pale: '#ffd9a8', glow: '#ff8a2a',
+                     rgb: '180,107,255', rgb2: '255,200,140', t1: 'LA NOCHE', t2: 'DE GENGAR', sub: '¡Truco o trato!',
+                     landed: '¡EL GRAN GENGAR HA LLEGADO!', dmg: 'DAÑO A GENGAR · {x}', breaks: '¡Gengar va a romper vuestros objetos!',
+                     gems: ['#ff8a2a', '#ffd23f', '#b46bff', '#5fe08a', '#ff8a2a', '#c9a6ff'] };
+  let BOSS = ARCEUS_B;
   // Línea de tiempo de la animación (segundos).
   const T_TITLE = 1.3, T_FLASH = 4.7, T_PORT = 5.1, T_DESC = 5.7, T_LAND = 7.9, T_BACK = 9.1, T_END = 10.1;
-  const GOLD = '#ffd25e';
+  let GOLD = ARCEUS_B.col, PALE = ARCEUS_B.pale, GLOW = ARCEUS_B.glow;
   const authority = () => !G.Coop.active || G.Coop.isHost;
   const TS = () => G.Tiles.T * G.Sprites.PX;
 
   let phase = null;                   // null | 'cine' | 'fight'
   let ct = 0;                         // reloj de la animación
   let cfg = null;                     // { tx, ty, q: [dex de los legendarios] }
-  let ported = false, landed = false, canSkip = false, cues = {};
+  let ported = false, landed = false, canSkip = false;
   let A = null;                       // Arceus
   let center = null;                  // centro de la arena (mundo)
   let arenaT = 0, bossT = 0, bossN = 0, base = 0, downs = 0;
+  let dealt = 0, shielded = false, broke = false, brk = 0;
+  let noBosses = false;                // para vídeos: sin legendarios (debugNoBosses)   // daño a Arceus · ¿hay legendarios? · objetos rotos
   // Daño a un solo enemigo por segundo (el que más recibe en cada segundo; con
   // ataques en área, sumar todo daría una vida enorme). Se guardan los últimos
   // 30 s y vale la media de los 6 mejores.
@@ -68,8 +100,9 @@ G.Judgment = (() => {
   let cineAnim = null;
 
   function reset() {
-    phase = null; ct = 0; cfg = null; ported = landed = canSkip = false; cues = {};
+    phase = null; ct = 0; cfg = null; ported = landed = canSkip = false;
     A = null; center = null; arenaT = bossT = 0; bossN = 0; base = 0; downs = 0;
+    dealt = 0; shielded = broke = false; brk = 0;
     hits = new Map(); hitT = 0; samples = []; embers = []; cam = null;
   }
 
@@ -94,10 +127,13 @@ G.Judgment = (() => {
 
   /** Quien manda: elige la arena y los legendarios, y avisa a todos. */
   function start() {
-    const pool = G.DEX.filter(p => p.leg && p.dex !== ARCEUS && G.SPRITE_META[p.dex]);
+    // (Arceus nunca sale de legendario más, ni con el gran Gengar de jefe: BOSS aquí aún es el de la partida anterior.)
+    const pool = G.DEX.filter(p => p.leg && p.dex !== ARCEUS_B.dex && G.SPRITE_META[p.dex]);
     const q = [];
     for (let i = 0; i < 40; i++) q.push(G.U.pick(pool).dex);
-    const c = { tx: -6000 - Math.floor(Math.random() * 2000), ty: -6000 - Math.floor(Math.random() * 2000), q };
+    const hw = G.Halloween.inRun ? 1 : 0;
+    const c = { tx: -6000 - Math.floor(Math.random() * 2000), ty: -6000 - Math.floor(Math.random() * 2000), q,
+                pl: hw ? 'ghost' : G.U.pick(Object.keys(PLATES)), hw };
     if (G.Coop.isHost) G.Coop.broadcast(['jd', c]);
     begin(c);
   }
@@ -105,13 +141,17 @@ G.Judgment = (() => {
   /** En cada ordenador: empieza la animación. */
   function begin(c) {
     if (phase) return;
+    if (!PLATES[c.pl]) c.pl = 'fighting';
+    BOSS = c.hw ? GENGAR_B : ARCEUS_B;
+    GOLD = BOSS.col; PALE = BOSS.pale; GLOW = BOSS.glow;
     cfg = c;
-    phase = 'cine'; ct = 0; cues = {};
+    phase = 'cine'; ct = 0;
     const s = G.DB.save;
     // La primera vez se ve entera; en grupo la salta el anfitrión.
     canSkip = !!(s && s.stats && s.stats.judged > 0) && authority();
-    G.Sprites.preload([ARCEUS, ...new Set(c.q.slice(0, 12))], 12000);
-    cineAnim = new G.Sprites.Animator(ARCEUS, 1);
+    G.Sprites.preload([BOSS.dex, ...new Set(c.q.slice(0, 12))], 12000, false, BOSS.skin || '');
+    cineAnim = new G.Sprites.Animator(BOSS.dex, 1);
+    cineAnim.skin = BOSS.skin;
     G.Touch.reset();
     G.Audio.music(null);
   }
@@ -147,9 +187,10 @@ G.Judgment = (() => {
     const ps = G.Game.everyone();
     ps.forEach((p, i) => { p.x = center.x + (i - (ps.length - 1) / 2) * 34; p.y = center.y + ts * 3; });
     G.Camera.x = pl.x; G.Camera.y = pl.y;
-    const anim = new G.Sprites.Animator(ARCEUS, SCALE);
-    A = { x: center.x, y: center.y - ts * 5, lift: 900, anim, r: G.Sprites.bodyRadius(ARCEUS, SCALE) * 0.9,
-          bodyH: G.Sprites.bodyHeight(ARCEUS, SCALE), cd: 2.2, cast: null, touchCd: 0, spin: 0,
+    const anim = new G.Sprites.Animator(BOSS.dex, BOSS.scale);
+    anim.skin = BOSS.skin;
+    A = { x: center.x, y: center.y - ts * 5, lift: 900, anim, r: G.Sprites.bodyRadius(BOSS.dex, BOSS.scale) * 0.9,
+          bodyH: G.Sprites.bodyHeight(BOSS.dex, BOSS.scale), cd: 2.2, cast: null, touchCd: 0, spin: 0,
           net: null, glow: 0 };
     anim.dir = 0;
   }
@@ -162,9 +203,9 @@ G.Judgment = (() => {
     A.anim.play('Attack', { speed: 0.8 });
     if (quiet) return;
     G.Camera.kick(1.2);
-    G.Game.flash('#fff3c8', 0.7);
+    G.Game.flash(PALE, 0.7);
     G.Audio.sfx('land');
-    for (let i = 0; i < 4; i++) G.FX.ring(A.x, A.y, 10 + i * 20, 260 + i * 140, i % 2 ? '#fff3c8' : GOLD, 0.5 + i * 0.25, 8 - i);
+    for (let i = 0; i < 4; i++) G.FX.ring(A.x, A.y, 10 + i * 20, 260 + i * 140, i % 2 ? PALE : GOLD, 0.5 + i * 0.25, 8 - i);
     G.FX.burst(A.x, A.y - 20, GOLD, 60, 360);
     G.FX.burst(A.x, A.y - 10, '#ffffff', 30, 240);
   }
@@ -180,7 +221,54 @@ G.Judgment = (() => {
     const n = G.Game.everyone().length, t = G.Game.st.time;
     const floor = (3200 + t * 9) * 0.35 * G.Coop.scaleHp(n);
     base = Math.max(floor, singleDps() * 3);
-    G.Spawner.say('¡Huye de Arceus! Es invencible', 3, true);
+    if (BOSS === GENGAR_B) G.Spawner.say('¡El gran Gengar te ha arrastrado a su Noche Espectral!', 4, true);
+    else G.Spawner.say('¡Arceus lleva la ' + PLATES[cfg.pl] + '! Ahora es de tipo ' + G.U.TYPE_NAME[cfg.pl], 4, true);
+    // Halloween: llegar hasta aquí da un buen puñado de caramelos (en grupo, a todos: los da el anfitrión).
+    if (BOSS === GENGAR_B && authority()) G.Game.addCandy(G.Halloween.JUDGE);
+    if (authority()) addTarget();
+  }
+
+  /*
+   * El blanco de Arceus: un enemigo invisible que va siempre donde está él.
+   * Así los ataques le dan como a cualquiera (y en cooperativo, los golpes de
+   * los invitados llegan al anfitrión, que lleva la cuenta). No se mueve solo,
+   * no hace daño al tocarle y no cae nunca (ver Enemy.hurt).
+   */
+  function addTarget() {
+    const def = { dex: BOSS.dex, name: BOSS.name, hp: 1e9, spd: 0, dmg: 0, xp: 0, behavior: 'arceus' };
+    const e = new G.Enemy(def, A.x, A.y, { hp: 1, spd: 1, dmg: 1 }, false);
+    dress(e);
+    e.update = function (dt) { if (A) { this.x = A.x; this.y = A.y; } if (this.flash > 0) this.flash -= dt; };
+    G.EnemyMgr.add(e);
+  }
+  /** Lo que lo hace "Arceus" (también en la copia de los invitados). */
+  function dress(e) {
+    e.arceus = true; e.judge = true;
+    e.types = [cfg ? cfg.pl : 'normal']; e.atkType = e.types[0];
+    e.r = G.Sprites.bodyRadius(BOSS.dex, BOSS.scale) * 0.9;
+    e.bodyH = G.Sprites.bodyHeight(BOSS.dex, BOSS.scale);
+  }
+  /** Un golpe a Arceus (en quien manda; ya viene reducido, ver dmgK). */
+  function hitArceus(d) { if (phase === 'fight') dealt += d; }
+
+  /** En el minuto 35: aviso y, al poco, se rompe el objeto de cada uno. */
+  function startBreak() {
+    if (brk > 0 || !A) return;
+    brk = BREAK_T;
+    G.Spawner.say(BOSS.breaks, 2.6, true);
+    G.Audio.sfx('toll');
+    for (let i = 0; i < 3; i++) G.FX.ring(A.x, A.y, A.r, 380 + i * 260, i % 2 ? PALE : GOLD, BREAK_T * (0.6 + i * 0.2), 6 - i);
+  }
+  function shatter() {
+    const pl = G.Game.player;
+    G.Game.flash(PALE, 0.6);
+    G.Camera.kick(0.9);
+    G.Audio.sfx('land');
+    if (A) G.FX.ring(A.x, A.y, 10, 1400, GOLD, 0.7, 8);
+    if (!pl || !pl.item) return;
+    G.FX.dmgText(pl.x, pl.y - pl.bodyH - 16, '¡Objeto roto: ' + G.Items.BY[pl.item].name + '!', '#ffd25e', true);
+    G.FX.burst(pl.x, pl.y - pl.bodyH * 0.5, PALE, 26, 220);
+    pl.equip(null);
   }
 
   // ---------------- cada fotograma ----------------
@@ -204,7 +292,7 @@ G.Judgment = (() => {
       const k = G.U.clamp((ct - T_DESC) / (T_LAND - T_DESC), 0, 1);
       A.lift = 900 * Math.pow(1 - k, 2.2);
       A.anim.loop('Idle');
-      if (ct > T_DESC && Math.random() < dt * 30) G.FX.px(A.x + G.U.rand(-60, 60), A.y - A.lift - G.U.rand(0, 200), Math.random() < 0.5 ? GOLD : '#fff3c8', { vy: G.U.rand(60, 160), life: 0.9 });
+      if (ct > T_DESC && Math.random() < dt * 30) G.FX.px(A.x + G.U.rand(-60, 60), A.y - A.lift - G.U.rand(0, 200), Math.random() < 0.5 ? GOLD : PALE, { vy: G.U.rand(60, 160), life: 0.9 });
       if (at(T_LAND)) land();
     }
     if (A) { A.anim.update(dt); A.spin += dt; }
@@ -228,12 +316,15 @@ G.Judgment = (() => {
     if (phase !== 'fight') return;
     arenaT += dt;
     A.touchCd -= dt; A.spin += dt;
+    shielded = G.EnemyMgr.all().some(e => e.boss && !e.dead && !e.arceus);
+    if (brk > 0 && (brk -= dt) <= 0) shatter();
     if (authority()) {
       arceusTick(dt);
       keepInside();
       bossT -= dt;
-      if (bossT <= 0) { bossT = BOSS_EVERY; spawnBoss(); }
+      if (bossT <= 0) { bossT = BOSS_EVERY; if (!noBosses) spawnBoss(); }
     } else netTick(dt);
+    keepMeInside(pl);
     A.anim.update(dt);
     touch(pl);
     ember(dt);
@@ -244,7 +335,7 @@ G.Judgment = (() => {
   function target() {
     let best = null, bd = Infinity;
     for (const p of G.Game.everyone()) {
-      if (p.dead) continue;
+      if (p.dead || p.silent) continue;              // (ni el compañero sin conexión: coop.js)
       const d = G.U.dist2(p.x, p.y, A.x, A.y);
       if (d < bd) { bd = d; best = p; }
     }
@@ -255,6 +346,13 @@ G.Judgment = (() => {
     const tg = target();
     if (A.cast) { castTick(dt, tg); return; }
     if (!tg) { A.anim.loop('Idle'); return; }
+    if (!broke && G.Game.st.time >= BREAK_AT) {
+      broke = true;
+      cast('break', tg);
+      if (G.Coop.isHost) G.Coop.broadcast(['jb']);
+      startBreak();
+      return;
+    }
     // Más lento que tú al principio; a los ~35 s ya te alcanza.
     const k = Math.min(1.22, 0.74 + arenaT * 0.013) + Math.max(0, arenaT - 300) * 0.0015;
     const spd = Math.max(70, (tg.spd || 100) * k);
@@ -294,6 +392,10 @@ G.Judgment = (() => {
       for (let i = 0; i < n; i++) H({ kind: 'beam', x: A.x, y: A.y, angle: a0 + i * 6.2832 / n, len: 1700, w: 34, delay: 1.1, pct: 0.35, color: '#fff3b0' });
       c.wind = 1.1;
       A.anim.play('Charge', { speed: 0.9 });
+    } else if (id === 'break') {
+      // Se para, carga y rompe los objetos de todos (ver startBreak).
+      c.wind = BREAK_T;
+      A.anim.play('Charge', { speed: 0.6 });
     } else {
       // Onda alrededor de él (si estás demasiado cerca).
       H({ kind: 'zone', x: A.x, y: A.y, r: 170, delay: 0.85, pct: 0.4 });
@@ -356,6 +458,14 @@ G.Judgment = (() => {
     clampIn(A);
     for (const e of G.EnemyMgr.all()) if (!e.remote) clampIn(e);
   }
+  // Y tú (25-10-2026): sólo te frenaban las paredes, y quien se salía de la
+  // arena (yendo muy rápido) ya no podía ser alcanzado: aguantaba para siempre.
+  // Cada juego, con su jugador (también los invitados).
+  function keepMeInside(pl) {
+    if (!pl || !center) return;
+    const max = (ARENA_R - 1.4) * TS(), dx = pl.x - center.x, dy = pl.y - center.y, d = Math.hypot(dx, dy);
+    if (d > max) { pl.x = center.x + dx / d * max; pl.y = center.y + dy / d * max; }
+  }
 
   // ---------------- legendarios ----------------
 
@@ -371,15 +481,15 @@ G.Judgment = (() => {
       x = center.x + Math.cos(a) * d; y = center.y + Math.sin(a) * d;
       if (G.Game.everyone().every(p => G.U.dist2(p.x, p.y, x, y) > 280 * 280)) break;
     }
-    const k = Math.pow(2, bossN);          // cada uno, el doble que el anterior
+    const k = Math.pow(HP_GROW, bossN), kd = Math.pow(DMG_GROW, bossN);
     const fast = Math.max(0, ...G.Game.everyone().map(p => (p.dead ? 0 : p.spd || 0)));
     const def = {
       dex, name: mon.name,
       hp: Math.round(base * k),
       spd: Math.round(Math.max(G.U.clamp(48 + (mon.spd - 78) * 0.6, 48, 105), fast * 0.8)),
-      dmg: Math.round((36 + t / 20) * k), xp: Math.round(500 + t * 1.2),
+      dmg: Math.round((36 + t / 20) * kd), xp: Math.round(500 + t * 1.2),
       behavior: mon.types.some(x => ['psychic', 'electric', 'ghost', 'fairy', 'fire', 'water', 'ice', 'dragon'].includes(x)) ? 'ranged' : 'charger',
-      shotDmg: Math.round((18 + t / 40) * k), shotCd: 0.9, range: 300
+      shotDmg: Math.round((18 + t / 40) * kd), shotCd: 0.9, range: 300
     };
     const e = new G.Enemy(def, x, y, { hp: 1, spd: 1, dmg: 1 }, true);
     e.judge = true;
@@ -388,7 +498,7 @@ G.Judgment = (() => {
     bossN++;
     G.Sprites.preload([cfg.q[(bossN + 4) % cfg.q.length]], 8000);
     G.FX.ring(x, y, 8, 120, GOLD, 0.6, 5);
-    G.FX.burst(x, y - 30, '#fff3c8', 24, 200);
+    G.FX.burst(x, y - 30, PALE, 24, 200);
     G.Spawner.say('¡' + e.name + ' acude a la Sentencia!', 1.8);
     G.Audio.sfx('rift');
   }
@@ -416,7 +526,7 @@ G.Judgment = (() => {
     // Aura dorada en el suelo.
     if (lift < 40) {
       ctx.globalAlpha = 0.22 + Math.sin(now * 3) * 0.06;
-      ctx.fillStyle = GOLD;
+      ctx.fillStyle = (cfg && G.U.TYPE_COLOR[cfg.pl]) || GOLD;    // del color de su Tabla
       ctx.beginPath(); ctx.ellipse(A.x, A.y, A.r * 2.2, A.r * 0.8, 0, 0, 6.2832); ctx.fill();
     }
     ctx.restore();
@@ -432,11 +542,11 @@ G.Judgment = (() => {
     ctx.rotate(rot);
     ctx.globalAlpha = alpha;
     ctx.strokeStyle = GOLD; ctx.lineWidth = Math.max(2, R * 0.07);
-    ctx.shadowColor = '#ffcf4a'; ctx.shadowBlur = R * 0.3;
+    ctx.shadowColor = GLOW; ctx.shadowBlur = R * 0.3;
     ctx.beginPath(); ctx.arc(0, 0, R, 0, 6.2832); ctx.stroke();
     ctx.lineWidth = Math.max(1, R * 0.025);
     ctx.beginPath(); ctx.arc(0, 0, R * 0.82, 0, 6.2832); ctx.stroke();
-    const GEMS = ['#ff6b4d', '#4fa8ff', '#5fe08a', '#ffe14d', '#b37bff', '#c9d2de'];
+    const GEMS = BOSS.gems;
     for (let i = 0; i < 12; i++) {
       const a = i * 6.2832 / 12;
       ctx.save();
@@ -460,9 +570,9 @@ G.Judgment = (() => {
     const w = 40 + near * 40 + Math.sin(ct * 9) * 6;
     ctx.save();
     const g = ctx.createLinearGradient(A.x - w, 0, A.x + w, 0);
-    g.addColorStop(0, 'rgba(255,210,94,0)');
-    g.addColorStop(0.5, 'rgba(255,248,220,0.7)');
-    g.addColorStop(1, 'rgba(255,210,94,0)');
+    g.addColorStop(0, `rgba(${BOSS.rgb},0)`);
+    g.addColorStop(0.5, `rgba(${BOSS.rgb2},0.7)`);
+    g.addColorStop(1, `rgba(${BOSS.rgb},0)`);
     ctx.globalAlpha = a;
     ctx.fillStyle = g;
     ctx.fillRect(A.x - w, top, w * 2, Math.max(0, bot - top));
@@ -470,7 +580,7 @@ G.Judgment = (() => {
     ctx.globalAlpha = a * (0.35 + near * 0.55);
     ctx.translate(A.x, A.y); ctx.scale(1, 0.36);
     const rg = ctx.createRadialGradient(0, 0, 0, 0, 0, w * 1.5);
-    rg.addColorStop(0, 'rgba(255,243,200,0.9)'); rg.addColorStop(0.5, 'rgba(255,210,94,0.35)'); rg.addColorStop(1, 'rgba(255,210,94,0)');
+    rg.addColorStop(0, `rgba(${BOSS.rgb2},0.9)`); rg.addColorStop(0.5, `rgba(${BOSS.rgb},0.35)`); rg.addColorStop(1, `rgba(${BOSS.rgb},0)`);
     ctx.fillStyle = rg;
     ctx.beginPath(); ctx.arc(0, 0, w * 1.5, 0, 6.2832); ctx.fill();
     ctx.restore();
@@ -493,7 +603,7 @@ G.Judgment = (() => {
       ctx.fillStyle = `rgba(10,6,2,${(G.U.clamp(t / 1.1, 0, 1) * 0.86).toFixed(3)})`;
       ctx.fillRect(0, 0, w, h);
     }
-    // "LA SENTENCIA DE ARCEUS"
+    // "LA SENTENCIA DE ARCEUS" (o "LA NOCHE DE GENGAR")
     const a = G.U.clamp((t - T_TITLE + 0.3) / 0.5, 0, 1) * G.U.clamp((T_FLASH + 0.2 - t) / 0.35, 0, 1);
     if (a > 0) {
       const cx = w / 2, cy = h * 0.34, R = Math.min(w, h) * 0.24;
@@ -505,35 +615,35 @@ G.Judgment = (() => {
       for (let i = 0; i < 16; i++) {
         ctx.rotate(6.2832 / 16);
         const g = ctx.createLinearGradient(0, 0, Math.max(w, h), 0);
-        g.addColorStop(0, 'rgba(255,214,110,0.9)'); g.addColorStop(1, 'rgba(255,214,110,0)');
+        g.addColorStop(0, `rgba(${BOSS.rgb},0.9)`); g.addColorStop(1, `rgba(${BOSS.rgb},0)`);
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.max(w, h), -R * 0.16); ctx.lineTo(Math.max(w, h), R * 0.16); ctx.closePath(); ctx.fill();
       }
       ctx.restore();
       // Arceus en silueta de luz, detrás de su rueda.
       wheel(ctx, cx, cy - R * 0.05, R, t * 0.35, a * 0.9);
-      const idle = G.Sprites.sheet(ARCEUS, 'Idle');
+      const idle = G.Sprites.sheet(BOSS.dex, 'Idle');
       if (cineAnim && idle && idle.ready) {
         // Silueta de luz que llena la rueda (en múltiplos de 0,5: píxeles enteros).
-        const body = (G.Sprites.animMeta(ARCEUS, 'Idle').ay || 47) * G.Sprites.PX;
+        const body = (G.Sprites.animMeta(BOSS.dex, 'Idle').ay || 47) * G.Sprites.PX;
         cineAnim.scale = Math.max(1, Math.round(R * 1.7 / body * 2) / 2);
         const rise = (1 - G.U.clamp((t - T_TITLE + 0.3) / 0.8, 0, 1)) * R * 0.3;
         ctx.save();
         ctx.globalAlpha = a * 0.85;
-        ctx.shadowColor = '#ffcf4a'; ctx.shadowBlur = 40;
+        ctx.shadowColor = GLOW; ctx.shadowBlur = 40;
         cineAnim.draw(ctx, cx, cy + body * cineAnim.scale * 0.5 + rise, { flash: true });
         ctx.restore();
       }
       // El título, letra a letra, debajo de la rueda.
       const size = Math.round(G.U.clamp(Math.min(w / 13, h / 9), 24, 64));
       const ty = cy + R + size * 1.15;
-      title(ctx, 'LA SENTENCIA', cx, ty, size, T_TITLE, a);
-      title(ctx, 'DE ARCEUS', cx, ty + size * 0.95, Math.round(size * 0.8), T_TITLE + 0.75, a);
+      title(ctx, BOSS.t1, cx, ty, size, T_TITLE, a);
+      title(ctx, BOSS.t2, cx, ty + size * 0.95, Math.round(size * 0.8), T_TITLE + 0.75, a);
       ctx.globalAlpha = a * G.U.clamp((t - T_TITLE - 1.6) / 0.6, 0, 1);
       ctx.font = F(700, Math.round(size * 0.32));
       ctx.textAlign = 'center';
       ctx.fillStyle = '#f3e2b0';
-      ctx.fillText('El tiempo se ha agotado…', cx, ty + size * 1.7);
+      ctx.fillText(G.T(BOSS.sub), cx, ty + size * 1.7);
     }
     // Franjas negras de cine durante la bajada.
     if (t > T_PORT) {
@@ -552,13 +662,13 @@ G.Judgment = (() => {
       ctx.globalAlpha = b;
       ctx.translate(w / 2, h * 0.24);
       ctx.scale(pop, pop);
-      goldText(ctx, '¡ARCEUS HA DESCENDIDO!', 0, 0, size);
+      goldText(ctx, BOSS.landed, 0, 0, size);
       ctx.restore();
       ctx.globalAlpha = b;
       ctx.font = F(700, Math.round(size * 0.45));
       ctx.textAlign = 'center';
       ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,.8)';
-      const sub = 'Es invencible: huye y aguanta todo lo que puedas';
+      const sub = 'Es invencible: aguanta y hazle todo el daño que puedas';
       ctx.strokeText(sub, w / 2, h * 0.24 + size * 1.1);
       ctx.fillStyle = '#ffe9b0';
       ctx.fillText(sub, w / 2, h * 0.24 + size * 1.1);
@@ -585,7 +695,7 @@ G.Judgment = (() => {
     ctx.strokeText(s, x, y);
     const g = ctx.createLinearGradient(0, y - size * 0.8, 0, y + size * 0.1);
     g.addColorStop(0, '#fff8d8'); g.addColorStop(0.5, '#ffd25e'); g.addColorStop(1, '#c7771a');
-    ctx.shadowColor = '#ffcf4a'; ctx.shadowBlur = size * 0.4;
+    ctx.shadowColor = GLOW; ctx.shadowBlur = size * 0.4;
     ctx.fillStyle = g;
     ctx.fillText(s, x, y);
     ctx.shadowBlur = 0;
@@ -640,6 +750,11 @@ G.Judgment = (() => {
     ctx.strokeText(txt, w / 2, boss ? 98 : 76);
     ctx.fillStyle = GOLD;
     ctx.fillText(txt, w / 2, boss ? 98 : 76);
+    const dtx = G.I18n.f(BOSS.dmg, Math.round(dealt).toLocaleString(G.I18n.locale));
+    ctx.font = F(800, 11);
+    ctx.strokeText(dtx, w / 2, (boss ? 98 : 76) + 15);
+    ctx.fillStyle = (cfg && G.U.TYPE_COLOR[cfg.pl]) || GOLD;
+    ctx.fillText(dtx, w / 2, (boss ? 98 : 76) + 15);
     // Flecha hacia Arceus si no se ve.
     const cam = G.Camera;
     const sx = (A.x - cam.left()) * cam.scale, sy = (A.y - A.bodyH * 0.5 - cam.top()) * cam.scale;
@@ -653,7 +768,7 @@ G.Judgment = (() => {
       ctx.fillStyle = '#ff6a3d';
       ctx.beginPath(); ctx.arc(0, 0, 26 + beat * 6, 0, 6.2832); ctx.fill();
       ctx.globalAlpha = 1;
-      ctx.fillStyle = beat > 0.5 ? '#fff3c8' : GOLD;
+      ctx.fillStyle = beat > 0.5 ? PALE : GOLD;
       ctx.beginPath();
       ctx.moveTo(Math.cos(an) * 34, Math.sin(an) * 34);
       ctx.lineTo(Math.cos(an + 2.45) * 17, Math.sin(an + 2.45) * 17);
@@ -661,7 +776,7 @@ G.Judgment = (() => {
       ctx.closePath(); ctx.fill();
       ctx.font = F(800, 11);
       ctx.textAlign = Math.cos(an) > 0.3 ? 'right' : Math.cos(an) < -0.3 ? 'left' : 'center';
-      const lbl = 'ARCEUS · ' + Math.round(G.U.dist(pl.x, pl.y, A.x, A.y) / 32) + ' m';
+      const lbl = BOSS.name.toUpperCase() + ' · ' + Math.round(G.U.dist(pl.x, pl.y, A.x, A.y) / 32) + ' m';
       ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,.85)';
       ctx.strokeText(lbl, -Math.cos(an) * 30, -Math.sin(an) * 26 + 4);
       ctx.fillStyle = GOLD;
@@ -691,30 +806,36 @@ G.Judgment = (() => {
   function onEvent(ev) {
     if (ev[0] === 'jd') begin(ev[1]);
     else if (ev[0] === 'jk') doSkip();
+    else if (ev[0] === 'jb' && phase === 'fight') startBreak();
   }
 
   /** Anfitrión: dónde está Arceus (va en cada envío). */
   function netState() {
     if (phase !== 'fight' || !A) return null;
     const a = G.Coop.ANIMS.indexOf(A.anim.cur);
-    return [Math.round(A.x), Math.round(A.y), a < 0 ? 0 : a, A.anim.dir];
+    return [Math.round(A.x), Math.round(A.y), a < 0 ? 0 : a, A.anim.dir, Math.round(dealt)];
   }
   function netApply(a) {
     if (!A || phase !== 'fight') return;
     A.net = { x: a[0], y: a[1], anim: a[2], dir: a[3] };
+    if (Number.isFinite(a[4]) && a[4] >= 0) dealt = a[4];      // el daño a Arceus lo cuenta el anfitrión
   }
 
   return {
-    AT, reset, noteDmg, update, cineTick, skip, bossDown, drawable, drawAir, drawOverlay, onEvent, netState, netApply,
+    AT, reset, noteDmg, hitArceus, dress, dmgK, update, cineTick, skip, bossDown, drawable, drawAir, drawOverlay, onEvent, netState, netApply,
     get active() { return !!phase; }, capSpd,
+    /** ¿Hay legendarios vivos? (entonces los ataques no le apuntan a Arceus) */
+    get shielded() { return shielded; },
     get cinematic() { return phase === 'cine'; },
     /** Lo que suena: nada en la animación hasta que aterriza. */
     get music() { return phase === 'cine' && ct < T_LAND ? null : 'judgment'; },
-    /** Para el resumen de la partida: { time, bosses } o null. */
-    summary() { return phase === 'fight' ? { time: arenaT, bosses: downs } : null; },
+    /** Para el resumen de la partida: { time, bosses, dmg, plate } o null. */
+    summary() { return phase === 'fight' ? { time: arenaT, bosses: downs, dmg: Math.round(dealt), plate: cfg.pl, gengar: BOSS === GENGAR_B } : null; },
     /** Para pruebas: vida del primer legendario y daño medido. */
     get debug() { return { base, single: singleDps(), samples: samples.length }; },
     /** Para pruebas: la Sentencia ya. */
-    debugStart() { if (!phase && authority()) start(); }
+    debugStart() { if (!phase && authority()) start(); },
+    /** Para vídeos: que no acudan legendarios. */
+    debugNoBosses(v = true) { noBosses = !!v; }
   };
 })();

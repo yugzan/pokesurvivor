@@ -3,6 +3,48 @@
  */
 G.HUD = (() => {
   const F = (w, s) => `${w} ${s}px Pixelify,"Segoe UI",system-ui,sans-serif`;
+  /** Parte un texto en líneas de como mucho maxW de ancho (con la letra que tenga ctx). */
+  function wrap(ctx, text, maxW) {
+    const out = [];
+    let cur = '';
+    for (const word of String(text).split(' ')) {
+      const t = cur ? cur + ' ' + word : word;
+      if (cur && ctx.measureText(t).width > maxW) { out.push(cur); cur = word; } else cur = t;
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+
+  /** Cartel encima de una esfera: su nombre y, con el ratón encima, también lo que hace. */
+  function orbTip(ctx, id, cx, by, full, w) {
+    const o = G.Orbs.BY[id], name = G.T(o.name);
+    const lines = [];
+    if (full) {
+      ctx.font = F(600, 11);
+      let cur = '';
+      for (const word of G.T(o.desc).split(' ')) {
+        const t = cur ? cur + ' ' + word : word;
+        if (ctx.measureText(t).width > 240 && cur) { lines.push(cur); cur = word; } else cur = t;
+      }
+      if (cur) lines.push(cur);
+    }
+    ctx.font = F(800, 12);
+    let bw = ctx.measureText(name).width;
+    ctx.font = F(600, 11);
+    for (const l of lines) bw = Math.max(bw, ctx.measureText(l).width);
+    bw += 16;
+    const bh = 20 + lines.length * 14, bx = G.U.clamp(cx - bw / 2, 4, w - bw - 4), y = by - bh;
+    ctx.save();
+    roundRect(ctx, bx, y, bw, bh, 8);
+    ctx.fillStyle = 'rgba(10,14,28,.92)'; ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = o.col; ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.font = F(800, 12); ctx.fillStyle = o.col;
+    ctx.fillText(name, bx + bw / 2, y + 14);
+    ctx.font = F(600, 11); ctx.fillStyle = '#e6ecff';
+    lines.forEach((l, k) => ctx.fillText(l, bx + bw / 2, y + 28 + k * 14));
+    ctx.restore();
+  }
 
   function roundRect(ctx, x, y, w, h, r) {
     ctx.beginPath();
@@ -83,7 +125,9 @@ G.HUD = (() => {
     ctx.fillText(G.U.mmss(st.time), w / 2, 42);
     ctx.font = F(600, 10);
     ctx.fillStyle = '#8fa3c4';
-    ctx.fillText(G.World.biomeName().toUpperCase() + '  ·  ' + pl.kills + ' DERROTADOS  ·  ' + pl.coins + ' MONEDAS', w / 2, 58);
+    // Halloween: también los caramelos que llevas en esta partida.
+    const cn = G.Halloween.inRun ? '  ·  ' + (pl.candy || 0) + ' CARAMELOS' : '';
+    ctx.fillText(G.World.biomeName().toUpperCase() + '  ·  ' + pl.kills + ' DERROTADOS  ·  ' + pl.coins + ' MONEDAS' + cn, w / 2, 58);
 
     // ---------- clima (arriba a la derecha) ----------
     const wx = G.Weather.current;
@@ -233,11 +277,24 @@ G.HUD = (() => {
       // Siempre centrado (antes heredaba la alineación de lo último dibujado, p.
       // ej. la flecha de un duende del tesoro, y salía descolocado).
       ctx.textAlign = 'center';
-      ctx.font = F(800, 22);
+      // En el móvil las frases largas (las esferas) se salían por los dos lados:
+      // se parten en líneas y, si aún no caben en tres, la letra baja.
+      let size = 22, lines;
+      for (;;) {
+        ctx.font = F(800, size);
+        lines = wrap(ctx, ban.text, w - 40);
+        if (lines.length <= 3 || size <= 14) break;
+        size -= 2;
+      }
       ctx.fillStyle = '#ffcb3d';
       ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 4;
-      ctx.strokeText(ban.text, w / 2, h * 0.3);
-      ctx.fillText(ban.text, w / 2, h * 0.3);
+      // (Nunca por encima de la línea de bioma, derrotados y monedas, bajo el reloj.)
+      const y0 = Math.max(78 + size * 0.5, h * 0.3 - (lines.length - 1) / 2 * size * 1.25);
+      lines.forEach((ln, i) => {
+        const y = y0 + i * size * 1.25;
+        ctx.strokeText(ln, w / 2, y);
+        ctx.fillText(ln, w / 2, y);
+      });
       ctx.restore();
     }
 
@@ -362,6 +419,64 @@ G.HUD = (() => {
         ctx.fillStyle = '#ffd23f';
         ctx.fillText(G.Items.BY[pl.item].name, ix + S / 2, iy - 6);
       }
+    }
+
+    // ---------- esferas (encima de los ataques; teclas 5-8) y sus mejoras activas ----------
+    const orbs = pl.orbs || [], ob = pl.orbBuff || {};
+    const buffs = Object.keys(ob).filter(id => ob[id] > 0);
+    if (orbs.some(Boolean) || buffs.length) {
+      const OS = 40, OG = 6, ow = G.Orbs.SLOTS * OS + (G.Orbs.SLOTS - 1) * OG;
+      const ox = sx + totalW / 2 - ow / 2, oy = sy - 30 - OS;
+      const cdF = G.U.clamp(G.Orbs.cd, 0, 1);
+      for (let i = 0; i < G.Orbs.SLOTS; i++) {
+        const o = orbs[i], x = ox + i * (OS + OG);
+        roundRect(ctx, x, oy, OS, OS, 9);
+        ctx.fillStyle = o ? 'rgba(20,24,44,.88)' : 'rgba(10,16,28,.45)';
+        ctx.fill();
+        const pick = o && !!G.Pad.name && i === G.Orbs.sel;      // con mando: la que usa X
+        ctx.lineWidth = pick ? 2.5 : 1.2;
+        ctx.strokeStyle = pick ? '#ffd23f' : o ? G.Orbs.BY[o.id].col : 'rgba(140,170,210,.18)';
+        ctx.stroke();
+        if (!o) continue;
+        G.Touch.addButton(x, oy, OS, OS, () => G.Orbs.use(pl, i), OG / 2 + 2);
+        G.Icons.draw(ctx, 'orb:' + o.id, x + (OS - 24) / 2, oy + (OS - 24) / 2, 24);
+        if (cdF > 0) {
+          ctx.save(); roundRect(ctx, x, oy, OS, OS, 9); ctx.clip();
+          ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(x, oy, OS, OS * cdF);
+          ctx.restore();
+        }
+        ctx.font = F(800, 9);
+        // Con mando: X usa la elegida, Y pasa a la siguiente (las teclas 5-8 no sirven ahí).
+        if (G.Pad.name) { ctx.textAlign = 'left'; ctx.fillStyle = pick ? '#ffd23f' : 'rgba(180,200,230,.7)'; ctx.fillText(pick ? 'X' : 'Y', x + 3, oy + 10); }
+        else if (!touch) { ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(180,200,230,.7)'; ctx.fillText(String(i + 5), x + 3, oy + 10); }
+        if (o.n > 1) { ctx.textAlign = 'right'; ctx.fillStyle = '#f4f8ff'; ctx.fillText('×' + o.n, x + OS - 3, oy + OS - 4); }
+      }
+      // Qué hace cada una: ratón encima (PC), la elegida con mando, o la que acabas de coger (3 s).
+      const mo = G.Input.mouse(), fresh = pl.orbNew && performance.now() - pl.orbNew.at < 3000 ? pl.orbNew.i : -1;
+      let tip = -1, full = false;
+      if (!touch) for (let i = 0; i < G.Orbs.SLOTS; i++) {
+        const x = ox + i * (OS + OG);
+        if (orbs[i] && mo.x >= x && mo.x <= x + OS && mo.y >= oy && mo.y <= oy + OS) { tip = i; full = true; }
+      }
+      if (tip < 0 && G.Pad.name && orbs[G.Orbs.sel]) tip = G.Orbs.sel;
+      if (tip < 0 && fresh >= 0 && orbs[fresh]) tip = fresh;
+      if (fresh >= 0 && orbs[fresh]) {
+        const x = ox + fresh * (OS + OG), a = 1 - (performance.now() - pl.orbNew.at) / 3000;
+        ctx.save(); ctx.globalAlpha = a;
+        roundRect(ctx, x - 2, oy - 2, OS + 4, OS + 4, 11);
+        ctx.lineWidth = 3; ctx.strokeStyle = G.Orbs.BY[orbs[fresh].id].col; ctx.stroke();
+        ctx.restore();
+      }
+      if (tip >= 0) orbTip(ctx, orbs[tip].id, ox + tip * (OS + OG) + OS / 2, oy - 8, full, w);
+
+      // Mejoras activas: icono y segundos que quedan.
+      buffs.forEach((id, k) => {
+        const bx = ox + ow + 10 + k * 30, by = oy + 4;
+        G.Icons.draw(ctx, 'orb:' + id, bx, by, 24);
+        ctx.font = F(800, 10); ctx.textAlign = 'center';
+        ctx.fillStyle = G.Orbs.BY[id].col;
+        ctx.fillText(Math.ceil(ob[id]) + 's', bx + 12, by + 35);
+      });
     }
 
     // ---------- botón de pausa (táctil) ----------
