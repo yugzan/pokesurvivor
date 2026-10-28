@@ -6,24 +6,34 @@
  * Garantías:
  *   - la tirada ×10 trae al menos un 4★ o superior
  *   - a las 70 tiradas sin 5★ en ese banner, el siguiente es 5★ seguro
- * Shiny: 1 de cada 100 tiradas sale en su versión shiny.
+ * Shiny: 1 de cada 100 tiradas sale en su versión shiny (2 de cada 100 con el
+ *   Amuleto Iris de esa generación).
+ * Amuleto Iris: uno por generación. Se tiene al completar su Pokédex (todos sus
+ *   Pokémon, legendarios incluidos). No se guarda aparte: sale de lo que tienes.
  * Repetidos: se convierten en Pokémonedas (los shiny repetidos, el triple).
+ * Halloween (30-10 al 1-11, systems/halloween.js): banner Noche Espectral
+ *   (gen 10, SPOOKY): los Pokémon Fantasma de todas las regiones, con shiny al
+ *   doble (2 %) y su propio pity. No tiene Amuleto Iris ni está en BANNERS.
  *
  * Se tira con TICKETS (se consiguen jugando):
- *   ×1   1 ticket
+ *   ×1   1 ticket (ya sin botón: desde el 22-10-2026 se tira de 10 en 10 o de 100 en 100)
  *   ×10  10 tickets normales, o 1 ticket ×10 (eliges con qué)
+ *   ×100 100 tickets normales, o 10 tickets ×10: son diez ×10 seguidas (cada
+ *        una con su Épica asegurada)
  */
 G.Gacha = (() => {
   /** ¿Qué gasta una tirada de n? → { t1, t10 } o null si no te llega. */
   /** @param use  't1' (tickets normales) o 't10' (un ticket ×10, sólo para la ×10) */
   function costOf(save, n, use = 't1') {
     const t = save.tickets || { t1: 0, t10: 0 };
+    if (n === 100 && use === 't10') return t.t10 >= 10 ? { t1: 0, t10: 10 } : null;
     if (n === 10 && use === 't10') return t.t10 >= 1 ? { t1: 0, t10: 1 } : null;
     return t.t1 >= n ? { t1: n, t10: 0 } : null;
   }
   const RATES = [[1, 45], [2, 30], [3, 17], [4, 6.5], [5, 1.5]];
   const PITY_5 = 70;
   const SHINY_RATE = 1 / 100;
+  const SHINY_RATE_IRIS = 2 / 100;
   const REFUND = { 1: 15, 2: 30, 3: 60, 4: 120, 5: 300 };
   let forceShiny = 0;           // para pruebas y vídeos: las N próximas salen shiny
 
@@ -42,7 +52,16 @@ G.Gacha = (() => {
     { gen: 9, name: 'Paldea',  color: ['#6a2a1a', '#4a1a5a', '#1a4a6a'] }
   ];
 
-  function inBanner(p, gen) { return p.gen === gen && !!G.SPRITE_META[p.dex]; }
+  const SPOOKY = { gen: 10, name: 'Noche Espectral', event: true, color: ['#1a0f2a', '#3d2266', '#7a3a12'] };
+  /** El banner de un número (1-9 las generaciones, 10 el de Halloween). */
+  const banner = gen => (gen === SPOOKY.gen ? SPOOKY : BANNERS[gen - 1]);
+  /** ¿Se puede tirar hoy en ese banner? (el de Halloween, sólo esos días) */
+  const isOpen = gen => (gen === SPOOKY.gen ? !!(G.Halloween && G.Halloween.on) : !!BANNERS[gen - 1]);
+
+  function inBanner(p, gen) {
+    if (!G.SPRITE_META[p.dex]) return false;
+    return gen === SPOOKY.gen ? p.types.includes('ghost') : p.gen === gen;
+  }
 
   /** Pokémon de una rareza en un banner. */
   function pool(rarity, gen) { return G.DEX.filter(p => inBanner(p, gen) && p.rarity === rarity); }
@@ -57,6 +76,20 @@ G.Gacha = (() => {
     }
     return { rarity, list: G.DEX.filter(p => inBanner(p, gen)) };
   }
+
+  /** Cuántos tienes de una generación → { have, total }. */
+  function dexOf(save, gen) {
+    const list = gen === SPOOKY.gen ? G.DEX.filter(p => p.types.includes('ghost')) : G.DEX.filter(p => p.gen === gen);
+    return { have: list.filter(p => save.owned[p.dex]).length, total: list.length };
+  }
+
+  /** ¿Tiene el Amuleto Iris de esa generación (su Pokédex completa)? */
+  function hasIris(save, gen) {
+    if (gen === SPOOKY.gen) return false;
+    const d = dexOf(save, gen); return d.have >= d.total;
+  }
+
+  function shinyRate(save, gen) { return gen === SPOOKY.gen || hasIris(save, gen) ? SHINY_RATE_IRIS : SHINY_RATE; }
 
   function rollRarity(min = 1) {
     const rates = RATES.filter(([r]) => r >= min);
@@ -76,8 +109,18 @@ G.Gacha = (() => {
    * Hace `n` tiradas en el banner `gen` sobre el guardado `save` (lo modifica).
    * Devuelve null si no hay monedas, o la lista de resultados:
    *   { dex, rarity, shiny, isNew, refund }
+   * (y en .iris la generación si estas tiradas te han dado su Amuleto Iris).
    */
   function pull(save, n, gen = 1, use = 't1') {
+    if (!isOpen(gen)) return null;
+    if (n === 100) {
+      if (!costOf(save, 100, use)) return null;
+      const hadIris = hasIris(save, gen);
+      const out = [];
+      for (let k = 0; k < 10; k++) out.push(...pull(save, 10, gen, use));
+      out.iris = !hadIris && hasIris(save, gen) ? gen : 0;
+      return out;
+    }
     const cost = costOf(save, n, use);
     if (!cost) return null;
     save.tickets.t1 -= cost.t1;
@@ -85,6 +128,7 @@ G.Gacha = (() => {
     save.pity = save.pity || {};
     save.shiny = save.shiny || {};
     save.pity[gen] = save.pity[gen] || 0;
+    const hadIris = hasIris(save, gen), rate = shinyRate(save, gen);
 
     const out = [];
     for (let i = 0; i < n; i++) {
@@ -97,7 +141,7 @@ G.Gacha = (() => {
       const { rarity, list } = poolNear(want, gen);
       if (rarity === 5) save.pity[gen] = 0;
       let mon = G.U.pick(list);
-      let shiny = G.Sprites.hasShiny(mon.dex) && (forceShiny > 0 ? (forceShiny--, true) : Math.random() < SHINY_RATE);
+      let shiny = G.Sprites.hasShiny(mon.dex) && (forceShiny > 0 ? (forceShiny--, true) : Math.random() < rate);
       // Los shiny no se repiten: si ya tienes ese, sale otro de la misma rareza
       // cuyo shiny te falte; si los tienes todos, sale normal.
       if (shiny && save.shiny[mon.dex]) {
@@ -121,10 +165,11 @@ G.Gacha = (() => {
       out.push({ dex: mon.dex, rarity, shiny, isNew, refund });
     }
     save.stats.pulls = (save.stats.pulls || 0) + n;
+    out.iris = !hadIris && hasIris(save, gen) ? gen : 0;
     return out;
   }
 
   return { debugForceShiny(n = 1) { forceShiny = n; },
-           costOf, RATES, PITY_5, SHINY_RATE, REFUND, RARITY_NAME, RARITY_COLOR, BANNERS,
-           pool, featured, pull };
+           costOf, RATES, PITY_5, SHINY_RATE, SHINY_RATE_IRIS, REFUND, RARITY_NAME, RARITY_COLOR, BANNERS, SPOOKY, banner, isOpen,
+           pool, featured, pull, dexOf, hasIris, shinyRate };
 })();

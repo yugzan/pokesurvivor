@@ -23,6 +23,7 @@ G.Player = class Player {
     this.spdMul = perks.spdMul || 1;
     this.cdMul = perks.cdMul || 1;
     this.dmgReduce = perks.dmgReduce || 0;
+    this.itemReduce = 0;          // el del objeto (Chaleco Asalto): no cuenta para el tope de las cartas Coraza
     this.regenFlat = perks.regen || 0;
     this.magnet = 78 * (perks.magnetMul || 1);
     this.xpMul = perks.xpMul || 1;
@@ -121,7 +122,7 @@ G.Player = class Player {
     const slow = this.inLiquid && !ab.steady ? G.World.liquidEffect(this.mon.types).slow || 1 : 1;
     return G.Judgment && G.Judgment.active ? G.Judgment.capSpd(s * slow * w) : s * slow * w;
   }
-  get reduction() { return Math.min(0.8, this.dmgReduce + this.buffs.def.n * this.buffs.def.amount); }
+  get reduction() { return Math.min(0.8, this.dmgReduce + this.itemReduce + this.buffs.def.n * this.buffs.def.amount); }
   get regen() { return this.regenFlat + this.buffs.regen.n * this.buffs.regen.amount; }
 
   // ---------------- movimientos ----------------
@@ -365,8 +366,12 @@ G.Player = class Player {
   addBuff(stat, amount, dur, maxStacks) {
     const b = this.buffs[stat];
     if (!b) return;
+    const n = Math.min(maxStacks, b.n + 1);
+    // Si lo que ya tienes vale más, no se pierde: con 3 cargas de Agilidad, un golpe
+    // con Armadura Frágil las dejaba en 1 (27-10-2026, #352). Sólo dura lo que dure más.
+    if (b.n && b.n * b.amount > n * amount) { b.t = Math.max(b.t, dur); return; }
     b.amount = amount;
-    b.n = Math.min(maxStacks, b.n + 1);
+    b.n = n;
     b.t = dur;
   }
 
@@ -387,11 +392,15 @@ G.Player = class Player {
     if (this.power && (this.power.t -= dt) <= 0) { this.power.def.off(this); this.power = null; }
     if (this.regen > 0) this.hp = Math.min(this.maxHp, this.hp + this.regen * dt);
     if (this.abil && this.abil.tick) this.abil.tick(this, dt);
-    // Sequía, Llovizna...: su clima al empezar y cada 3 min, si no hay otro (en
-    // grupo lo pone el anfitrión, que es quien manda el clima a todos).
-    if (this.abil && this.abil.summon && (!G.Coop.active || G.Coop.isHost) && (this.sumT = (this.sumT || 0) - dt) <= 0) {
+    // Sequía, Llovizna...: su clima al empezar y cada 3 min, si no hay otro. En
+    // grupo lo pone el anfitrión, que es quien manda el clima a todos: el de un
+    // invitado se lo pide (coop.js, 'wxq'; antes del 25-10-2026 el clima de los
+    // invitados no salía nunca).
+    if (this.abil && this.abil.summon && !this.remote && (this.sumT = (this.sumT || 0) - dt) <= 0) {
       this.sumT = 180;
-      if (!G.Weather.current) G.Weather.debugStart(this.abil.summon, 60);
+      if (G.Weather.current) { /* ya hay uno */ }
+      else if (!G.Coop.active || G.Coop.isHost) G.Weather.debugStart(this.abil.summon, 60);
+      else G.Coop.toHost(['wxq', this.abil.summon]);
     }
 
     // --- movimiento con colisiones ---
@@ -462,15 +471,19 @@ G.Player = class Player {
 
   /**
    * Ángulo de "Apuntar a mano", o null si toca apuntar solo. Manda lo último
-   * que se haya usado: el stick derecho mientras se empuja; si no, el ratón si
-   * se ha movido después (en PC). Soltar el stick sin tocar el ratón = solo.
+   * que se haya usado: el stick derecho mientras se empuja, el joystick de
+   * apuntar en el móvil (touch.js) mientras se arrastra; si no, el ratón si se
+   * ha movido después (sólo en PC). Soltar el stick sin tocar el ratón = solo.
+   * (En el móvil nunca cuenta el "ratón": cada toque lo mueve, y antes del
+   * 25-10-2026 los ataques se iban hacia el dedo con el que te movías.)
    */
   handAim() {
-    // En el móvil (táctil) no hay apuntado a mano: siempre apunta solo.
-    if (this.remote || G.Settings.touch || !G.Settings.get('aimManual')) return null;
+    if (this.remote || !G.Settings.get('aimManual')) return null;
     const st = G.Pad.aim();
     if (st) return Math.atan2(st[1], st[0]);
-    if (G.Touch.active || !G.Input.mouseMovedAt || G.Input.mouseMovedAt < G.Pad.aimAt) return null;
+    const ta = G.Touch.aim();
+    if (ta) return Math.atan2(ta[1], ta[0]);
+    if (G.Settings.touch || G.Touch.active || !G.Input.mouseMovedAt || G.Input.mouseMovedAt < G.Pad.aimAt) return null;
     const w = G.Input.mouseWorld();
     const dx = w.x - this.x, dy = w.y - (this.y - G.LIFT * 0.5);
     return Math.hypot(dx, dy) < 4 ? null : Math.atan2(dy, dx);

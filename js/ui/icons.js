@@ -32,6 +32,20 @@ G.Icons = (() => {
     bag: { pal: { b: '#e0743d', d: '#9a4418', w: '#ffc59f', y: '#ffd23f' }, rows: [
       '....kkkk....', '...k....k...', '..kkkkkkkk..', '.kbbbbbbbbk.', '.kbwbbbbbbk.', '.kkkkkkkkkk.',
       '.kbbbyybbbk.', '.kbbbyybbbk.', '.kbbbbbbbbk.', '.kbbbbbbbdk.', '.kddddddddk.', '..kkkkkkkk..'] },
+    // Amuleto Iris (uno por generación, en la Mochila): una gema con los colores del arcoíris.
+    iris: { pal: { y: '#ffd23f', w: '#ffffff', r: '#ff5f6d', o: '#ffa64d', g: '#5fe08a', b: '#4fb4ff', p: '#c47bff' }, rows: [
+      '....kkkk....', '...ky..yk...', '....kyyk....', '.....kk.....', '....kwrk....', '...kwrrok...',
+      '..kwrroyyk..', '.krooyyggbk.', '..koyggbbk..', '...kgbppk...', '....kbpk....', '.....kk.....'] },
+    // Halloween (25-10-2026): caramelo (la moneda del evento), calabaza y sombrero de bruja.
+    candy: { pal: { o: '#ff8a2a', y: '#ffd23f', w: '#fff1d6', p: '#7a4ad0', d: '#4a2a8a' }, rows: [
+      '............', '............', 'kk...kk...kk', 'kpk.kyyk.kpk', 'kppkowyokppk', 'kpdkooyokdpk',
+      'kpdkoooykdpk', 'kppkoooykppk', 'kpk.kook.kpk', 'kk...kk...kk', '............', '............'] },
+    pumpkin: { pal: { o: '#ff8a2a', d: '#c45a12', y: '#ffd23f', g: '#5fae3f' }, rows: [
+      '.....kk.....', '....kgk.....', '..kkkgkkk...', '.kooodoooodk', 'koyyodooyyok', 'kooyodooyook',
+      'koooodoooook', 'koyyyyyyyyok', 'kooyoyyoyook', '.koooooooodk', '..kkdddddkk.', '....kkkkk...'] },
+    witch: { pal: { p: '#3d2266', l: '#6a40a8', o: '#ff8a2a', y: '#ffd23f' }, rows: [
+      '.......kk...', '......kpk...', '......kplk..', '.....kpplk..', '.....kppplk.', '....kpppplk.',
+      '....kppppplk', '...kooyooook', '.kkpppppppkk', 'kppppppppppl', '.kkkkkkkkkkk', '............'] },
     shop: { pal: { g: '#5fe08a', w: '#f4f8ff', b: '#b07a4a', y: '#ffd23f' }, rows: [
       '............', 'kkkkkkkkkkkk', 'kgwgwgwgwgwk', 'kgwgwgwgwgwk', 'kkkkkkkkkkkk', '.kbbbbbbbbk.',
       '.kbkkkbbbbk.', '.kbkwkbyybk.', '.kbkwkbyybk.', '.kbkwkbbbbk.', '.kbkwkbbbbk.', 'kkkkkkkkkkkk'] },
@@ -52,6 +66,10 @@ G.Icons = (() => {
     ban: { pal: { r: '#ff5f6d' }, rows: [
       '...kkkkkk...', '..krrrrrrk..', '.krrkkkkrrk.', 'krrk..krrrrk', 'krk..krrkkrk', 'krk.krrk.krk',
       'krkkrrk..krk', 'krrrrk..krrk', '.krrkkkkrrk.', '..krrrrrrk..', '...kkkkkk...', '............'] },
+    // YouTube (botón de la barra de arriba, 23-10-2026).
+    yt: { pal: { r: '#ff2a2a', s: '#b3121a', w: '#ffffff' }, rows: [
+      '............', '............', '.kkkkkkkkkk.', 'krrrrrrrrrrk', 'krrrrwrrrrrk', 'krrrrwwrrrrk',
+      'krrrrwwwrrrk', 'krrrrwwrrrsk', 'krrrrwrrrrsk', 'kssssssssssk', '.kkkkkkkkkk.', '............'] },
     heart: { pal: { r: '#ff5f6d', s: '#c23a4b', w: '#ffd3d8' }, rows: [
       '............', '.kkk....kkk.', 'kwwrk..krrrk', 'kwrrrkkrrrsk', 'krrrrrrrrrsk', 'krrrrrrrrrsk',
       '.krrrrrrrsk.', '..krrrrrsk..', '...krrrsk...', '....krsk....', '.....kk.....', '............'] },
@@ -251,6 +269,17 @@ G.Icons = (() => {
     shove:      ['#...#', '.#.#.', '.....', '.#.#.', '#...#'],
     stun:       ['#.#.#', '.....', '..#..', '.....', '#.#.#']
   };
+
+  // Esferas de Mundo Misterioso (orbs.js): la misma bola con el color de cada una.
+  // l claro · c color · d sombra · w brillo
+  const ORB = ['....kkkk....', '..kkllcckk..', '.kllwlcccdk.', '.klwwlcccdk.', 'kllwlccccddk', 'kllccccccddk',
+               'klccccccdddk', 'kcccccccdddk', '.kcccccdddk.', '.kcccdddddk.', '..kkddddkk..', '....kkkk....'];
+  const ORB_PAL = {
+    slumber: ['#d9ccff', '#9b7bff', '#5a3fb8'], slow: ['#c8f2ff', '#3fb6e8', '#1d6f9c'],
+    blowback: ['#e4fff0', '#6fe0a0', '#2a9a5e'], focus: ['#ffc4ca', '#ff4f63', '#a81f33'],
+    luminous: ['#fff8d0', '#ffd84d', '#c08a10'], quick: ['#ffe2b8', '#ff9a2e', '#b0560c']
+  };
+  for (const [id, [l, c, d]] of Object.entries(ORB_PAL)) UI['orb:' + id] = { pal: { l, c, d, w: '#ffffff' }, rows: ORB };
 
   // ---------------- render ----------------
 
